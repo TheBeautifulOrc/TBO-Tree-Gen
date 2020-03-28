@@ -232,9 +232,6 @@ class CreateTree(Operator):
                 sn.child_indices[i] = corr[c]
         return separate_nodes
 
-    #def simplify_geometry(self, nodes, max_angle):
-
-
     @classmethod
     def poll(cls, context):
         sel = context.selected_objects
@@ -303,9 +300,6 @@ class CreateTree(Operator):
         for obj in sel:     # For each tree
             # Create a separate node list
             obj_tn  = self.separate_nodes(all_tree_nodes, obj)
-            #Simplify:
-
-
             # Calculate vertices in local space 
             verts = [tn.location for tn in obj_tn]
             tf = obj.matrix_world.inverted()
@@ -404,28 +398,12 @@ class SCSubPanel(PanelTemplate, Panel):
         grid.label(text="Max Iterations")
         grid.prop(tree_data, "sc_n_iter", text="")
 
-class GSSubPanel(PanelTemplate, Panel):
-    bl_parent_id = "OBJECT_PT_tbo_treegen_main"
-    bl_idname = "OBJECT_PT_tbo_treegen_gs"
-    bl_label = "Geometry Simplification"
-
-    def draw(self, context):
-        layout = self.layout
-        tree_data = context.scene.tbo_treegen_data
-        separation_factor = 2.0
-
-        grid = layout.grid_flow(row_major=True, columns=2)
-        
-        grid.label(text="Stepping Angle")
-        grid.prop(tree_data, "simp_angle", text="")
-
 classes = (
     TreeProperties, 
     CreateTree, 
     MainPanel, 
     APSubPanel,
     SCSubPanel
-    #GSSubPanel
 )
 
 def register():
