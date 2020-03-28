@@ -220,11 +220,6 @@ class CreateTree(Operator):
             p_attr.remove(p)
         return (len(corr) > 0)
 
-        for i, c in enumerate(relative_root.child_indices):
-            separate_nodes.append(mixed_nodes[c])
-            relative_root.child_indices[i] = len(separate_nodes) - 1
-            self.separate_recursive(mixed_nodes, separate_nodes, mixed_nodes[c])
-
     def separate_nodes(self, mixed_nodes, obj):
         separate_nodes = []
         corr = {}
