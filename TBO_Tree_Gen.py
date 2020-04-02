@@ -128,6 +128,13 @@ class TreeProperties(PropertyGroup):
         min=0.0,
         unit='LENGTH'
     )
+    sk_smoothing : FloatProperty(
+        name="Branch Smoothing",
+        description="Determines how much complex geometry around the branches should be smoothed",
+        default=1.0,
+        max=1.0,
+        min=0.0
+    )
 
 
 @dataclass
@@ -261,9 +268,29 @@ class CreateTree(Operator):
                 sn.child_indices[i] = corr[c]
         return separate_nodes
 
-    # Applies a skin modifier to the skeletal mesh and applies it
-    def skin_skeleton(self, obj, tree_data, temp_name="temp_skin_mod"):
-        pass
+    # Adds and applies a skin modifier to the skeletal mesh
+    def skin_skeleton(self, context, obj, tree_nodes, tree_data, temp_name="temp_skin_mod"):
+        depths = [tn.depth for tn in tree_nodes]
+        branch_rad = []    # Calculate table of branch thickness
+        for d in range(max(depths)+1):
+            rad = (tree_data.sk_branch_rad_fac ** d) * tree_data.sk_base_radius
+            if rad < tree_data.sk_min_radius:
+                rad = tree_data.sk_min_radius
+            branch_rad.append(rad)
+        # Initialize skin modifier
+        sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')
+        sk_mod.use_x_symmetry = False
+        sk_mod.use_y_symmetry = False
+        sk_mod.use_z_symmetry = False
+        sk_mod.branch_smoothing = tree_data.sk_smoothing
+        # Adjust MeshSkinVertices
+        obj.data.skin_vertices[0].data[0].use_root = True
+        for i, v in enumerate(obj.data.skin_vertices[0].data):
+            d = tree_nodes[i].depth
+            rad = branch_rad[d]
+            v.radius = (rad, rad) 
+        context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=temp_name)
 
     @classmethod
     def poll(cls, context):
@@ -282,6 +309,7 @@ class CreateTree(Operator):
     def execute(self, context):
         os.system("clear")
         sel = context.selected_objects  # All objects that shall become a tree
+        act = context.active_object
         tree_data = context.scene.tbo_treegen_data
 
         ### Generate attraction points
@@ -330,13 +358,6 @@ class CreateTree(Operator):
         for obj in sel:     # For each tree
             # Create a separate node list
             obj_tn  = self.separate_nodes(all_tree_nodes, obj)
-            depths = [tn.depth for tn in obj_tn]
-            branch_rad = []    # Calculate table of branch thickness
-            #for d in range(max(depths)+1):
-            #    rad = (tree_data.sk_branch_rad_fac ** d) * tree_data.sk_base_radius
-            #    if rad < tree_data.sk_min_radius:
-            #        rad = tree_data.sk_min_radius
-            #    branch_rad.append(rad)
             # Calculate vertices in local space 
             verts = [tn.location for tn in obj_tn]
             tf = obj.matrix_world.inverted()
@@ -356,14 +377,11 @@ class CreateTree(Operator):
             bm.edges.ensure_lookup_table()
             bm.to_mesh(obj.data)
             bm.free()
-            # Apply skin modifier
-            #sk_mod = obj.modifiers.new(name="TempSkinModifier", type='SKIN')
-            #obj.data.skin_vertices[0].data[0].use_root = True
-            #for i, v in enumerate(obj.data.skin_vertices[0].data):
-            #    d = obj_tn[i].depth
-            #    rad = branch_rad[d]
-            #    v.radius = (rad, rad)
-            
+            # Turn the skeletal mesh into one with volume
+            self.skin_skeleton(context, obj, obj_tn, tree_data)
+        # Reset active object
+        context.view_layer.objects.active = act
+        
         return {'FINISHED'}
 
 class PanelTemplate:
@@ -461,6 +479,8 @@ class SKSubPanel(PanelTemplate, Panel):
         grid.prop(tree_data, "sk_branch_rad_fac", text="")
         grid.label(text="Minimum Radius")
         grid.prop(tree_data, "sk_min_radius", text="")
+        grid.label(text="Branch Smoothing")
+        grid.prop(tree_data, "sk_smoothing", text="")
 
 classes = (
     TreeProperties, 
