@@ -23,7 +23,15 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import List
 
+f = open("log.txt", 'w')
+
 class TreeProperties(PropertyGroup):
+    def shape_object_poll(self, obj):
+        return ((obj.type == 'MESH') 
+            and (obj not in bpy.context.selected_objects)
+            and (obj.name in bpy.data.objects)
+        )
+
     seed : IntProperty(
         name="Seed",
         description="Seed for tree randomization",
@@ -32,7 +40,8 @@ class TreeProperties(PropertyGroup):
     shape_object : PointerProperty(
         type=bpy.types.Object,
         name="Shape Object",
-        description="Object that defines the trees overall shape"
+        description="Object that defines the trees overall shape",
+        poll=shape_object_poll
     )
     use_shape_modifiers : BoolProperty(
         name="Evaluate Modifiers", 
@@ -70,7 +79,8 @@ class TreeProperties(PropertyGroup):
         description="Distance in between adjacent nodes",
         default=0.1,
         min=0.01, 
-        max=1.0
+        max=1.0,
+        unit='LENGTH'
     )
     sc_d_i : IntProperty(
         name="Influence Factor",
@@ -96,13 +106,29 @@ class TreeProperties(PropertyGroup):
         default=1000,
         min=0
     )
-    simp_angle : FloatProperty(
-        name="Stepping Angle",
-        description="This angle determines how much the mesh may be simplified (0.0 means no simplification)",
-        default=5.0,
+    sk_base_radius : FloatProperty(
+        name="Base Radius",
+        description="Radius at the very base of the tree trunk",
+        default=0.5,
         min=0.0,
-        max=45.0
+        soft_min=0.01,
+        unit='LENGTH'
     )
+    sk_branch_rad_fac : FloatProperty(
+        name="Branch Radius Factor",
+        description="Factor with which the trees radius will get smaller during branching",
+        default=0.75,
+        min=0.0,
+        max=1.0
+    )
+    sk_min_radius : FloatProperty(
+        name="Minimum Radius",
+        description="Minimum radius of the branches",
+        default=0.01,
+        min=0.0,
+        unit='LENGTH'
+    )
+
 
 @dataclass
 class Tree_Node:
@@ -118,16 +144,9 @@ class CreateTree(Operator):
     bl_description = "Operator that creates a pseudo-random realistic tree"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def get_mesh_vertices(self, obj, arr=None):
-        me = obj.to_mesh()
-        l = len(me.vertices)
-        if arr is None:
-            arr = np.zeros(l*3 , dtype=np.float64)
-        else:
-            arr.resize(l*3)
-        me.vertices.foreach_get('co', arr.ravel())
-        return arr.reshape(l,3)
-
+    # Transfomrs a list of points according to the given 
+    # 4x4 transformation matrix using numpy.
+    # Returns the transformed vertices as a list. 
     def transform_points(self, transf_matr, points):
         l  = len(points)
         np_points = np.array([element for tupl in points for element in tupl], dtype=np.float64)
@@ -141,6 +160,7 @@ class CreateTree(Operator):
         return retval
 
     # Generates points in/on an object using a particle system.
+    # Returns the points as a list 
     def get_points_in_object(self, context, tree_data, temp_name="temp_part_sys"):
         obj = tree_data.shape_object
         seed = tree_data.seed
@@ -168,7 +188,14 @@ class CreateTree(Operator):
             arr.append(Vector((np_arr[i,:])))
         return arr
 
-    def iterate_growth(self, growth_nodes, p_attr, d_i, d_k, D, max_depth):
+    # Iterates the growth algorithm over the given tree nodes.
+    # Returns 'True' if new nodes have been added.
+    def iterate_growth(self, growth_nodes, p_attr, tree_data, d_i_override=None):
+        # Get values
+        D = tree_data.sc_D
+        d_i = d_i_override if d_i_override else tree_data.sc_d_i * D
+        d_k = tree_data.sc_d_k * D
+        max_depth = tree_data.sc_branch_depth
         # Create kd-tree of all nodes
         n_nodes = len(growth_nodes)
         kdt_nodes = mathutils.kdtree.KDTree(n_nodes)
@@ -220,6 +247,8 @@ class CreateTree(Operator):
             p_attr.remove(p)
         return (len(corr) > 0)
 
+    # Seperated a list of mixed nodes.
+    # Returns a list of all nodes that have obj as parent.
     def separate_nodes(self, mixed_nodes, obj):
         separate_nodes = []
         corr = {}
@@ -232,6 +261,10 @@ class CreateTree(Operator):
                 sn.child_indices[i] = corr[c]
         return separate_nodes
 
+    # Applies a skin modifier to the skeletal mesh and applies it
+    def skin_skeleton(self, obj, tree_data, temp_name="temp_skin_mod"):
+        pass
+
     @classmethod
     def poll(cls, context):
         sel = context.selected_objects
@@ -239,9 +272,7 @@ class CreateTree(Operator):
         return ((sel) != []
             and all(obj.type == 'MESH' for obj in sel) 
             and (context.mode == 'OBJECT') 
-            and (tree_data.shape_object is not None) 
-            and (tree_data.shape_object.type == 'MESH')
-            and (tree_data.shape_object not in sel)
+            and (tree_data.shape_object is not None)
             and (tree_data.sc_d_i > tree_data.sc_d_k or tree_data.sc_d_i == 0)
         )
 
@@ -252,7 +283,6 @@ class CreateTree(Operator):
         os.system("clear")
         sel = context.selected_objects  # All objects that shall become a tree
         tree_data = context.scene.tbo_treegen_data
-        f = open('log.txt', 'w')
 
         ### Generate attraction points
         p_attr = self.get_points_in_object(context, tree_data)
@@ -282,24 +312,31 @@ class CreateTree(Operator):
             dist = kdt_p_attr.find(tree_obj.location)[2]
             while (dist > tree_data.sc_d_i * tree_data.sc_D and tree_data.sc_d_i != 0):
                 d_i = dist + tree_data.sc_d_i * tree_data.sc_D   # Idjust the attr. point influence so the stem can grow
-                self.iterate_growth(tree_nodes, p_attr, d_i, tree_data.sc_d_k * tree_data.sc_D, tree_data.sc_D, tree_data.sc_branch_depth)
+                self.iterate_growth(tree_nodes, p_attr, tree_data, d_i)
                 dist = kdt_p_attr.find(tree_nodes[-1].location)[2]
             for n in tree_nodes:
                 n.child_indices = [(ind + len(all_tree_nodes)) for ind in n.child_indices]
             all_tree_nodes.extend(tree_nodes)
-
         # Grow the tree crowns
         its = 0
         something_new = True
         while(something_new):
             if((tree_data.sc_n_iter > 0 and its == tree_data.sc_n_iter) or (len(p_attr) == 0)):
                 break
-            something_new = self.iterate_growth(all_tree_nodes, p_attr, tree_data.sc_d_i * tree_data.sc_D, tree_data.sc_d_k * tree_data.sc_D, tree_data.sc_D, tree_data.sc_branch_depth)
+            something_new = self.iterate_growth(all_tree_nodes, p_attr, tree_data)
             its += 1
-        # Generate meshes:
+ 
+        ### Generate meshes
         for obj in sel:     # For each tree
             # Create a separate node list
             obj_tn  = self.separate_nodes(all_tree_nodes, obj)
+            depths = [tn.depth for tn in obj_tn]
+            branch_rad = []    # Calculate table of branch thickness
+            #for d in range(max(depths)+1):
+            #    rad = (tree_data.sk_branch_rad_fac ** d) * tree_data.sk_base_radius
+            #    if rad < tree_data.sk_min_radius:
+            #        rad = tree_data.sk_min_radius
+            #    branch_rad.append(rad)
             # Calculate vertices in local space 
             verts = [tn.location for tn in obj_tn]
             tf = obj.matrix_world.inverted()
@@ -319,6 +356,14 @@ class CreateTree(Operator):
             bm.edges.ensure_lookup_table()
             bm.to_mesh(obj.data)
             bm.free()
+            # Apply skin modifier
+            #sk_mod = obj.modifiers.new(name="TempSkinModifier", type='SKIN')
+            #obj.data.skin_vertices[0].data[0].use_root = True
+            #for i, v in enumerate(obj.data.skin_vertices[0].data):
+            #    d = obj_tn[i].depth
+            #    rad = branch_rad[d]
+            #    v.radius = (rad, rad)
+            
         return {'FINISHED'}
 
 class PanelTemplate:
@@ -398,12 +443,32 @@ class SCSubPanel(PanelTemplate, Panel):
         grid.label(text="Max Iterations")
         grid.prop(tree_data, "sc_n_iter", text="")
 
+class SKSubPanel(PanelTemplate, Panel):
+    bl_parent_id = "OBJECT_PT_tbo_treegen_main"
+    bl_idname = "OBJECT_PT_tbo_treegen_sk"
+    bl_label = "Skinning"
+
+    def draw(self, context):
+        layout = self.layout
+        tree_data = context.scene.tbo_treegen_data
+        separation_factor = 2.0
+
+        grid = layout.grid_flow(row_major=True, columns=2)
+        
+        grid.label(text="Base Radius")
+        grid.prop(tree_data, "sk_base_radius", text="")
+        grid.label(text="Branch Radius Factor")
+        grid.prop(tree_data, "sk_branch_rad_fac", text="")
+        grid.label(text="Minimum Radius")
+        grid.prop(tree_data, "sk_min_radius", text="")
+
 classes = (
     TreeProperties, 
     CreateTree, 
     MainPanel, 
     APSubPanel,
-    SCSubPanel
+    SCSubPanel,
+    SKSubPanel
 )
 
 def register():
