@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import List
 
-f = open("log.txt", 'w')
+f = open("/tmp/log.txt", 'w')
 
 class TreeProperties(PropertyGroup):
     def shape_object_poll(self, obj):
@@ -198,7 +198,7 @@ class CreateTree(Operator):
     # Iterates the growth algorithm over the given tree nodes.
     # Returns 'True' if new nodes have been added.
     def iterate_growth(self, growth_nodes, p_attr, tree_data, d_i_override=None):
-        # Get values
+        # Get tree_data values
         D = tree_data.sc_D
         d_i = d_i_override if d_i_override else tree_data.sc_d_i * D
         d_k = tree_data.sc_d_k * D
@@ -209,9 +209,8 @@ class CreateTree(Operator):
         for i, node in enumerate(growth_nodes):
             kdt_nodes.insert(node.location, i)
         kdt_nodes.balance()
-        # Return values
-        kill = []
-        new_nodes = []
+        kill = []   # List of all attraction points that need to be deleted
+        new_nodes = []  # List of all newly generated nodes 
         # Build correspondence table between nodes and attr. points
         corr = defaultdict(list)
         for p in p_attr:
@@ -232,7 +231,6 @@ class CreateTree(Operator):
                 n_vec += (p - loc).normalized()
             if n_vec.length < math.sqrt(2):
                 n_vec = (corr[key][0] - loc).normalized()
-            # Create child node:
             # Evaluate child nodes depth
             parent_node.child_indices.append(n_nodes + i)
             if(len(parent_node.child_indices) > 1):
@@ -242,6 +240,10 @@ class CreateTree(Operator):
                         growth_nodes[c].depth = c_depth     # And increase their depth
             else:
                 c_depth = parent_node.depth
+
+            if(parent_node.depth > c_depth):
+                print("Failure at node", n_nodes+i)
+            # Create child node
             new_nodes.append(Tree_Node((loc + D * n_vec.normalized()), parent_node.parent_object, c_depth))
         growth_nodes.extend(new_nodes)
         for key in corr:
@@ -289,8 +291,8 @@ class CreateTree(Operator):
             d = tree_nodes[i].depth
             rad = branch_rad[d]
             v.radius = (rad, rad) 
-        context.view_layer.objects.active = obj
-        bpy.ops.object.modifier_apply(modifier=temp_name)
+        #context.view_layer.objects.active = obj
+        #bpy.ops.object.modifier_apply(modifier=temp_name)
 
     @classmethod
     def poll(cls, context):
@@ -300,6 +302,7 @@ class CreateTree(Operator):
             and all(obj.type == 'MESH' for obj in sel) 
             and (context.mode == 'OBJECT') 
             and (tree_data.shape_object is not None)
+            and (tree_data.shape_object not in sel)
             and (tree_data.sc_d_i > tree_data.sc_d_k or tree_data.sc_d_i == 0)
         )
 
