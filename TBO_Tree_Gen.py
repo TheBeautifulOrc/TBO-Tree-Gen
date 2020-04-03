@@ -1,4 +1,4 @@
-Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
+# Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
 
 bl_info = {
     "name" : "TBO's TreeGenerator",
