@@ -25,8 +25,6 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import List
 
-f = open("/tmp/log.txt", 'w')
-
 class TreeProperties(PropertyGroup):
     def shape_object_poll(self, obj):
         return ((obj.type == 'MESH') 
@@ -96,12 +94,6 @@ class TreeProperties(PropertyGroup):
         default=2,
         min=1
     )
-    sc_branch_depth : IntProperty(
-        name="Max Branch Depth",
-        description="Maximum branching depth the tree can develop during growth ('0' for unlimited branching)",
-        default=0,
-        min=0
-    )
     sc_n_iter : IntProperty(
         name="Max Iterations",
         description="Maximum amount of iterations the space colonialization algorithm may go through ('0' for unlimited iterations)",
@@ -137,7 +129,6 @@ class TreeProperties(PropertyGroup):
         max=1.0,
         min=0.0
     )
-
 
 @dataclass
 class Tree_Node:
@@ -204,7 +195,6 @@ class CreateTree(Operator):
         D = tree_data.sc_D
         d_i = d_i_override if d_i_override else tree_data.sc_d_i * D
         d_k = tree_data.sc_d_k * D
-        max_depth = tree_data.sc_branch_depth
         # Create kd-tree of all nodes
         n_nodes = len(growth_nodes)
         kdt_nodes = mathutils.kdtree.KDTree(n_nodes)
@@ -221,42 +211,36 @@ class CreateTree(Operator):
             if dist <= d_k:
                 kill.append(p)
             # Else assign close attr. points to nodes
-            elif (dist <= d_i or d_i == 0) and (max_depth == 0 or growth_nodes[ind].depth < max_depth):   # Only if they're not already at max depth
+            elif (dist <= d_i or d_i == 0):
                 corr[ind].append(p)
         # If the node has close attr. points
         # grow a child node
         for i, key in enumerate(corr):
             parent_node = growth_nodes[key]
+            parent_node.child_indices.append(n_nodes + i)
+            # Calculate child location
             loc = parent_node.location
             n_vec = Vector((0.0,0.0,0.0)) 
             for p in corr[key]:
                 n_vec += (p - loc).normalized()
             if n_vec.length < math.sqrt(2):
                 n_vec = (corr[key][0] - loc).normalized()
-            # Evaluate child nodes depth
-            parent_node.child_indices.append(n_nodes + i)
-            if(len(parent_node.child_indices) > 1):
-                c_depth = parent_node.depth + 1     # One greater than parents depth if the parent is a branching point
-                if(len(parent_node.child_indices) == 2):    # Special case: Parent node just became a branching node
-                    for c in parent_node.child_indices[:-1]:    # Iterate through all previous nodes
-                        growth_nodes[c].depth = c_depth     # And increase their depth
-            else:
-                c_depth = parent_node.depth
-
-            if(parent_node.depth > c_depth):
-                print("Failure at node", n_nodes+i)
             # Create child node
-            new_nodes.append(Tree_Node((loc + D * n_vec.normalized()), parent_node.parent_object, c_depth))
+            new_nodes.append(Tree_Node((loc + D * n_vec.normalized()), parent_node.parent_object, 0))
         growth_nodes.extend(new_nodes)
-        for key in corr:
-            n = growth_nodes[key]
-            if len(n.child_indices) > 1:
-                for c in n.child_indices:
-                    growth_nodes[c].depth = n.depth + 1
-
         for p in kill:
             p_attr.remove(p)
         return (len(corr) > 0)
+
+    # Evaluates the depth (and thus the thickness) of every tree node
+    def calculate_depths(self, tree_nodes):
+        for tn in tree_nodes:   # For each tree node 
+            if len(tn.child_indices) > 1:   # If the node is a branching point
+                child_depth = tn.depth + 1  # The child branches shlould be of higher depth
+            else:   # If there's only one or no child
+                child_depth = tn.depth  # The child is a continuation of the current branch and should therefore have the same depth
+            for child in tn.child_indices:
+                tree_nodes[child].depth = child_depth
 
     # Seperated a list of mixed nodes.
     # Returns a list of all nodes that have obj as parent.
@@ -293,8 +277,8 @@ class CreateTree(Operator):
             d = tree_nodes[i].depth
             rad = branch_rad[d]
             v.radius = (rad, rad) 
-        #context.view_layer.objects.active = obj
-        #bpy.ops.object.modifier_apply(modifier=temp_name)
+        context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=temp_name)
 
     @classmethod
     def poll(cls, context):
@@ -312,7 +296,11 @@ class CreateTree(Operator):
         return self.execute(context)
 
     def execute(self, context):
+        # Debug information
         os.system("clear")
+        f = open("/tmp/log.txt", 'w')
+        f.write("Debug Info:\n")
+
         sel = context.selected_objects  # All objects that shall become a tree
         act = context.active_object
         tree_data = context.scene.tbo_treegen_data
@@ -363,6 +351,8 @@ class CreateTree(Operator):
         for obj in sel:     # For each tree
             # Create a separate node list
             obj_tn  = self.separate_nodes(all_tree_nodes, obj)
+            # Calculate depths
+            self.calculate_depths(obj_tn)
             # Calculate vertices in local space 
             verts = [tn.location for tn in obj_tn]
             tf = obj.matrix_world.inverted()
@@ -384,9 +374,11 @@ class CreateTree(Operator):
             bm.free()
             # Turn the skeletal mesh into one with volume
             self.skin_skeleton(context, obj, obj_tn, tree_data)
+
         # Reset active object
         context.view_layer.objects.active = act
         
+        f.close()
         return {'FINISHED'}
 
 class PanelTemplate:
@@ -461,8 +453,6 @@ class SCSubPanel(PanelTemplate, Panel):
         grid.prop(tree_data, "sc_d_k", text="")
         grid.separator(factor=separation_factor)
         grid.separator(factor=separation_factor)
-        grid.label(text="Max Branch Depth")
-        grid.prop(tree_data, "sc_branch_depth", text="")
         grid.label(text="Max Iterations")
         grid.prop(tree_data, "sc_n_iter", text="")
 
