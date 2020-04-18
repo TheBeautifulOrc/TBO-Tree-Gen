@@ -6,7 +6,7 @@ This addon for Blender 2.8+ creates trees procedurally by implementing a space c
 
 The algorithm implemented in this addon is based on the paper [Modeling Trees with a Space Colonization Algorithm](http://algorithmicbotany.org/papers/colonization.egwnp2007.large.pdf "Link to the paper"). The main advantages of this addon compared to most other tree generation addons for Blender are:
 
-- **Control:** The user is in total control of the shape and size of the tree. The overall shape of the tree and minor tweaking are clearly separated and will not interfere with one another. 
+- **Control:** The user is in total control of the shape and size of the tree. Defining the overall shape of the tree and tweaking minor details are clearly separated workflows and will not interfere with one another. 
 - **Realism:** Since the trees, which are grown by this addon, emulate the natural process of competing for space, they will look organic and will not contain artifacts like intersecting branches.  
 - **Multiple Trees:** With this workflow multiple trees can be "grown" into one single interconnected shape without clipping into each other (i.e. a hedge consisting of multiple individual plants). 
 
