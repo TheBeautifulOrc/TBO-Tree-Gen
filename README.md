@@ -1,6 +1,6 @@
 # TBO-Tree-Gen (WIP)
 
-This addon for Blender 2.8+ creates trees procedurally implementing a space colonialization algorithm. 
+This addon for Blender 2.8+ creates trees procedurally by implementing a space colonialization algorithm. 
 
 ## Features
 
