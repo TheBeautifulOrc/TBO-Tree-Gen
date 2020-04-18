@@ -32,6 +32,11 @@ class TreeProperties(PropertyGroup):
             and (obj.name in bpy.data.objects)
         )
 
+    preview : BoolProperty(
+        name="Preview",
+        description="Should the algorithm be executed in preview mode?",
+        default=False
+    )
     seed : IntProperty(
         name="Seed",
         description="Seed for tree randomization",
@@ -99,6 +104,16 @@ class TreeProperties(PropertyGroup):
         description="Maximum amount of iterations the space colonialization algorithm may go through ('0' for unlimited iterations)",
         default=1000,
         min=0
+    )
+    vr_red_angle : FloatProperty(
+        name="Reduction Angle",
+        description="Smallest angle that can't be reduced anymore",
+        default=math.radians(5.0),
+        soft_min=0.1,
+        min=0.0,
+        max=math.radians(90.0),
+        subtype='ANGLE',
+        unit='ROTATION'
     )
     sk_base_radius : FloatProperty(
         name="Base Radius",
@@ -242,7 +257,7 @@ class CreateTree(Operator):
             for child in tn.child_indices:
                 tree_nodes[child].depth = child_depth
 
-    # Seperated a list of mixed nodes.
+    # Seperates a list of mixed nodes.
     # Returns a list of all nodes that have obj as parent.
     def separate_nodes(self, mixed_nodes, obj):
         separate_nodes = []
@@ -280,6 +295,37 @@ class CreateTree(Operator):
         context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier=temp_name)
 
+    # Reduces the vertex count of a list of tree nodes
+    # Returns a new list of tree nodes
+    def reduce_tree_nodes(self, tree_nodes, tree_data):
+        crit_angle = tree_data.vr_red_angle
+        # Return value
+        new_tree_nodes = []
+        # Copy root
+        new_tree_nodes.append(tree_nodes[0])
+        
+        for parent in tree_nodes:
+            if parent in new_tree_nodes:    # Check all nodes in tree_nodes that need to be preserved
+                for c in parent.child_indices:    # Foreach of it's children
+                    child = tree_nodes[c]
+                    while(True):
+                        if len(child.child_indices) != 1:   # If the child, we are looking at, is a branch or endpoint
+                            # It must be preserved and the routine can end
+                            new_tree_nodes.append(child)
+                            break
+                        else:   # Else we have to further evaluate if the child should be preserved
+                            grandchild = tree_nodes[child.child_indices[0]]     # Take a look at the child's child
+                            # Calculate the angle between the line segments [parent;child] and [parent;grandchild]
+                            vec1 = Vector(parent.location - child.location)
+                            vec2 = Vector(parent.location - grandchild.location)
+                            angle = vec1.angle(vec2, 0)
+                            if angle >= crit_angle:     # If the angle is larger than specified by the user
+                                # The child must be preserved 
+                                new_tree_nodes.append(child)
+                                break
+                            else:
+                                # The child will be discarded and the evaluation will continue with the grandchild
+                                child = grandchild
     @classmethod
     def poll(cls, context):
         sel = context.selected_objects
@@ -300,7 +346,7 @@ class CreateTree(Operator):
         os.system("clear")
         f = open("/tmp/log.txt", 'w')
         f.write("Debug Info:\n")
-
+        # general-purpose variables
         sel = context.selected_objects  # All objects that shall become a tree
         act = context.active_object
         tree_data = context.scene.tbo_treegen_data
@@ -313,15 +359,13 @@ class CreateTree(Operator):
         # for each new vertex that will be created later on. It aditionally 
         # stores information like the branching depth, and the parenthood 
         # relationships between nodes.
-        all_tree_nodes = []   # Important!
-
+        all_tree_nodes = []
         # Setup kd-tree of attraction points
         kdt_p_attr = mathutils.kdtree.KDTree(tree_data.n_p_attr)
         for p in range(tree_data.n_p_attr):
             kdt_p_attr.insert(p_attr[p], p)
         kdt_p_attr.balance()
-
-        # Grow stems:
+        # Grow stems
         # This is different from the regular iterations since the root nodes 
         # of the tree objects may be far away from the attraction points.
         # In that case extra steps must be taken to grow towards the 
@@ -347,12 +391,21 @@ class CreateTree(Operator):
             something_new = self.iterate_growth(all_tree_nodes, p_attr, tree_data)
             its += 1
  
-        ### Generate meshes
+        ### Separate trees
+        sorted_trees = {}
         for obj in sel:     # For each tree
             # Create a separate node list
-            obj_tn  = self.separate_nodes(all_tree_nodes, obj)
-            # Calculate depths
-            self.calculate_depths(obj_tn)
+            sorted_trees[obj] = self.separate_nodes(all_tree_nodes, obj)
+        # Calculate depths
+        for key in sorted_trees:
+            self.calculate_depths(sorted_trees[key])
+        
+        ### Geometry reduction
+
+
+        ### Generate meshes
+        for obj in sel:     # For each tree
+            obj_tn = sorted_trees[obj]
             # Calculate vertices in local space 
             verts = [tn.location for tn in obj_tn]
             tf = obj.matrix_world.inverted()
@@ -372,8 +425,9 @@ class CreateTree(Operator):
             bm.edges.ensure_lookup_table()
             bm.to_mesh(obj.data)
             bm.free()
-            # Turn the skeletal mesh into one with volume
-            self.skin_skeleton(context, obj, obj_tn, tree_data)
+            if not tree_data.preview:   # If not in preview-mode
+                # Turn the skeletal mesh into one with volume
+                self.skin_skeleton(context, obj, obj_tn, tree_data)
 
         # Reset active object
         context.view_layer.objects.active = act
@@ -401,7 +455,9 @@ class MainPanel(PanelTemplate, Panel):
 
     def draw(self, context):
         layout = self.layout
+        tree_data = context.scene.tbo_treegen_data
         layout.operator("tbo.create_tree")
+        layout.prop(tree_data, "preview")
 
 class APSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
@@ -456,6 +512,20 @@ class SCSubPanel(PanelTemplate, Panel):
         grid.label(text="Max Iterations")
         grid.prop(tree_data, "sc_n_iter", text="")
 
+class VRSubPanel(PanelTemplate, Panel):
+    bl_parent_id = "OBJECT_PT_tbo_treegen_main"
+    bl_idname = "OBJECT_PT_tbo_treegen_vr"
+    bl_label = "Vertex Reduction"
+
+    def draw(self, context):
+        layout = self.layout
+        tree_data = context.scene.tbo_treegen_data
+
+        grid = layout.grid_flow(row_major=True, columns=2)
+        
+        grid.label(text="Reduciton Angle")
+        grid.prop(tree_data, "vr_red_angle", text="")
+
 class SKSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
     bl_idname = "OBJECT_PT_tbo_treegen_sk"
@@ -464,7 +534,6 @@ class SKSubPanel(PanelTemplate, Panel):
     def draw(self, context):
         layout = self.layout
         tree_data = context.scene.tbo_treegen_data
-        separation_factor = 2.0
 
         grid = layout.grid_flow(row_major=True, columns=2)
         
@@ -483,6 +552,7 @@ classes = (
     MainPanel, 
     APSubPanel,
     SCSubPanel,
+    VRSubPanel,
     SKSubPanel
 )
 
