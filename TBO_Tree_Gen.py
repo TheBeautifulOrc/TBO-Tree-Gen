@@ -32,10 +32,15 @@ class TreeProperties(PropertyGroup):
             and (obj.name in bpy.data.objects)
         )
 
-    preview : BoolProperty(
-        name="Preview",
-        description="Should the algorithm be executed in preview mode?",
-        default=False
+    pr_enable_reduction : BoolProperty(
+        name="Enable Vertex Reduction",
+        description="Should the vertex reduction be executed?",
+        default=True
+    )
+    pr_enable_skinning : BoolProperty(
+        name="Enable Skinning",
+        description="Should the skin modifier be applied?",
+        default=True
     )
     seed : IntProperty(
         name="Seed",
@@ -298,34 +303,46 @@ class CreateTree(Operator):
     # Reduces the vertex count of a list of tree nodes
     # Returns a new list of tree nodes
     def reduce_tree_nodes(self, tree_nodes, tree_data):
-        crit_angle = tree_data.vr_red_angle
-        # Return value
-        new_tree_nodes = []
-        # Copy root
-        new_tree_nodes.append(tree_nodes[0])
-        
+        crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
+        new_tree_nodes = []     # Return value
+        correspondence = {}     # Correspondence table for keeping track of the child indices
+        new_tree_nodes.append(tree_nodes[0])    # Copy root
         for parent in tree_nodes:
             if parent in new_tree_nodes:    # Check all nodes in tree_nodes that need to be preserved
                 for c in parent.child_indices:    # Foreach of it's children
-                    child = tree_nodes[c]
-                    while(True):
-                        if len(child.child_indices) != 1:   # If the child, we are looking at, is a branch or endpoint
-                            # It must be preserved and the routine can end
-                            new_tree_nodes.append(child)
-                            break
+                    child = tree_nodes[c]   # Get the child node
+                    something_to_preserve = False
+                    while(not something_to_preserve):
+                        if len(child.child_indices) != 1:   # If the child, we are looking at, is a branch or endpoint, it must be preserved and the routine can end
+                            something_to_preserve = True                         
                         else:   # Else we have to further evaluate if the child should be preserved
                             grandchild = tree_nodes[child.child_indices[0]]     # Take a look at the child's child
                             # Calculate the angle between the line segments [parent;child] and [parent;grandchild]
                             vec1 = Vector(parent.location - child.location)
                             vec2 = Vector(parent.location - grandchild.location)
                             angle = vec1.angle(vec2, 0)
-                            if angle >= crit_angle:     # If the angle is larger than specified by the user
-                                # The child must be preserved 
-                                new_tree_nodes.append(child)
-                                break
+                            if angle >= crit_angle:     # If the angle is larger than specified by the user, the child must be preserved
+                                something_to_preserve = True
                             else:
-                                # The child will be discarded and the evaluation will continue with the grandchild
+                                # The child will not be preserved and the evaluation will continue with the grandchild
                                 child = grandchild
+                    new_tree_nodes.append(child)    # Preserve the chosed child
+                    correspondence[tree_nodes.index(child)] =  len(new_tree_nodes) - 1  # Add it's new position to the correspondence table
+        print("reduction done")
+        # Once the reduction itself is done, 
+        # rearrange the child indices
+        print(len(tree_nodes))
+        print(len(new_tree_nodes))
+        for i, node in enumerate(new_tree_nodes):     # Foreach new node
+            for j, c in enumerate(node.child_indices):    # Foreach old index
+                new_index = correspondence.get(c, None)     # Search the correspondence table
+                while(not new_index):   # If nothing was found in the table (the child was not preserved)
+                    c = tree_nodes[c].child_indices[0]     # Look at the grandchild
+                    new_index = correspondence.get(c, None)    # # Search the correspondence table 
+                    # Repeat until preserved node was found...
+                new_tree_nodes[i].child_indices[j] = new_index  # Update the child index
+        return new_tree_nodes
+
     @classmethod
     def poll(cls, context):
         sel = context.selected_objects
@@ -396,12 +413,15 @@ class CreateTree(Operator):
         for obj in sel:     # For each tree
             # Create a separate node list
             sorted_trees[obj] = self.separate_nodes(all_tree_nodes, obj)
-        # Calculate depths
+        
+        ### Calculate depths
         for key in sorted_trees:
             self.calculate_depths(sorted_trees[key])
         
         ### Geometry reduction
-
+        if tree_data.pr_enable_reduction:
+            for key in sorted_trees:
+                sorted_trees[key] = self.reduce_tree_nodes(sorted_trees[key], tree_data)
 
         ### Generate meshes
         for obj in sel:     # For each tree
@@ -425,7 +445,7 @@ class CreateTree(Operator):
             bm.edges.ensure_lookup_table()
             bm.to_mesh(obj.data)
             bm.free()
-            if not tree_data.preview:   # If not in preview-mode
+            if tree_data.pr_enable_skinning:   # If not in preview-mode
                 # Turn the skeletal mesh into one with volume
                 self.skin_skeleton(context, obj, obj_tn, tree_data)
 
@@ -455,9 +475,22 @@ class MainPanel(PanelTemplate, Panel):
 
     def draw(self, context):
         layout = self.layout
-        tree_data = context.scene.tbo_treegen_data
         layout.operator("tbo.create_tree")
-        layout.prop(tree_data, "preview")
+
+class PRSubPanel(PanelTemplate, Panel):
+    bl_parent_id = "OBJECT_PT_tbo_treegen_main"
+    bl_idname = "OBJECT_PT_tbo_treegen_pr"
+    bl_label = "Preview Settings"
+
+    def draw(self, context):
+        layout = self.layout
+        tree_data = context.scene.tbo_treegen_data
+
+        grid = layout.grid_flow(row_major=True, columns=2)
+        grid.label(text="Vertex Reduction")
+        grid.prop(tree_data, "pr_enable_reduction", text="")
+        grid.label(text="Skin Modifier")
+        grid.prop(tree_data, "pr_enable_skinning", text="")
 
 class APSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
@@ -517,6 +550,11 @@ class VRSubPanel(PanelTemplate, Panel):
     bl_idname = "OBJECT_PT_tbo_treegen_vr"
     bl_label = "Vertex Reduction"
 
+    @classmethod
+    def poll(cls, context):
+        tree_data = context.scene.tbo_treegen_data
+        return tree_data.pr_enable_reduction
+    
     def draw(self, context):
         layout = self.layout
         tree_data = context.scene.tbo_treegen_data
@@ -530,6 +568,11 @@ class SKSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
     bl_idname = "OBJECT_PT_tbo_treegen_sk"
     bl_label = "Skinning"
+
+    @classmethod
+    def poll(cls, context):
+        tree_data = context.scene.tbo_treegen_data
+        return tree_data.pr_enable_skinning
 
     def draw(self, context):
         layout = self.layout
@@ -550,6 +593,7 @@ classes = (
     TreeProperties, 
     CreateTree, 
     MainPanel, 
+    PRSubPanel,
     APSubPanel,
     SCSubPanel,
     VRSubPanel,
