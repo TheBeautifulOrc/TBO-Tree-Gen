@@ -17,6 +17,8 @@ import bmesh
 import numpy as np
 import os
 import math
+import time
+import concurrent.futures
 
 from bpy.types import (Operator, Panel, PropertyGroup)
 from bpy.props import (IntProperty, BoolProperty, StringProperty, FloatProperty, EnumProperty, PointerProperty)
@@ -24,6 +26,7 @@ from mathutils import Vector
 from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import List
+from multiprocessing import Process
 
 class TreeProperties(PropertyGroup):
     def shape_object_poll(self, obj):
@@ -128,13 +131,6 @@ class TreeProperties(PropertyGroup):
         soft_min=0.01,
         unit='LENGTH'
     )
-    sk_branch_rad_fac : FloatProperty(
-        name="Branch Radius Factor",
-        description="Factor with which the trees radius will get smaller during branching",
-        default=0.75,
-        min=0.0,
-        max=1.0
-    )
     sk_min_radius : FloatProperty(
         name="Minimum Radius",
         description="Minimum radius of the branches",
@@ -156,6 +152,7 @@ class Tree_Node:
     parent_object : bpy.types.Object
     depth : int = 0
     weight : int = 1
+    weight_factor : float = 0.0
     child_indices : List[int] = field(default_factory=list)
 
 class CreateTree(Operator):
@@ -279,24 +276,19 @@ class CreateTree(Operator):
 
     # Adds and applies a skin modifier to the skeletal mesh
     def skin_skeleton(self, context, obj, tree_nodes, tree_data, temp_name="temp_skin_mod"):
-        depths = [tn.depth for tn in tree_nodes]
-        branch_rad = []    # Calculate table of branch thickness
-        for d in range(max(depths)+1):
-            rad = (tree_data.sk_branch_rad_fac ** d) * tree_data.sk_base_radius
-            if rad < tree_data.sk_min_radius:
-                rad = tree_data.sk_min_radius
-            branch_rad.append(rad)
         # Initialize skin modifier
-        sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')
-        sk_mod.use_x_symmetry = False
-        sk_mod.use_y_symmetry = False
-        sk_mod.use_z_symmetry = False
-        sk_mod.branch_smoothing = tree_data.sk_smoothing
+        sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')     # Create the modifier
+        sk_mod.use_x_symmetry = False   #
+        sk_mod.use_y_symmetry = False   # Disable symmetry options
+        sk_mod.use_z_symmetry = False   #
+        sk_mod.branch_smoothing = tree_data.sk_smoothing    # Set the branch smoothing to the desired value
         # Adjust MeshSkinVertices
         obj.data.skin_vertices[0].data[0].use_root = True
         for i, v in enumerate(obj.data.skin_vertices[0].data):
-            d = tree_nodes[i].depth
-            rad = branch_rad[d]
+            weight_factor = tree_nodes[i].weight_factor
+            rad = tree_data.sk_base_radius * weight_factor
+            if rad < tree_data.sk_min_radius:
+                rad = tree_data.sk_min_radius
             v.radius = (rad, rad) 
         context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier=temp_name)
@@ -329,11 +321,8 @@ class CreateTree(Operator):
                                 child = grandchild
                     new_tree_nodes.append(child)    # Preserve the chosed child
                     correspondence[tree_nodes.index(child)] =  len(new_tree_nodes) - 1  # Add it's new position to the correspondence table
-        print("reduction done")
         # Once the reduction itself is done, 
         # rearrange the child indices
-        print(len(tree_nodes))
-        print(len(new_tree_nodes))
         for i, node in enumerate(new_tree_nodes):     # Foreach new node
             for j, c in enumerate(node.child_indices):    # Foreach old index
                 new_index = correspondence.get(c, None)     # Search the correspondence table
@@ -346,9 +335,11 @@ class CreateTree(Operator):
 
     # Evaluates the nodes weight based on the number of recursive children it has
     def calculate_weights(self, tree_nodes):
+        n_nodes = len(tree_nodes)   # Total number of tree nodes (relevant for weight factor calculation)
         for node in reversed(tree_nodes):   # For each node (in reversed order)
-            for c in node.child_indices:    # Look at each chils
+            for c in node.child_indices:    # Look at each child
                 node.weight += tree_nodes[c].weight     # And add the child's (previoulsy calculated) weight to the nodes weight
+            node.weight_factor = node.weight / n_nodes  # The weight factor is ratio between all nodes and the nodes that are connected to this particular node
 
     @classmethod
     def poll(cls, context):
@@ -370,6 +361,7 @@ class CreateTree(Operator):
         os.system("clear")
         f = open("/tmp/log.txt", 'w')
         f.write("Debug Info:\n")
+        t_start = time.perf_counter()
         # general-purpose variables
         sel = context.selected_objects  # All objects that shall become a tree
         act = context.active_object
@@ -429,14 +421,20 @@ class CreateTree(Operator):
         for key in sorted_trees:
             self.calculate_weights(sorted_trees[key])
 
+        #f.write("Before\n")
+        #for key in sorted_trees:
+        #    for i, node in enumerate(sorted_trees[key]):
+        #        f.write(str(i) + " " + str(node) + "\n")
+
         ### Geometry reduction
         if tree_data.pr_enable_reduction:
             for key in sorted_trees:
                 sorted_trees[key] = self.reduce_tree_nodes(sorted_trees[key], tree_data)
 
-        for key in sorted_trees:
-            for i, node in enumerate(sorted_trees[key]):
-                f.write(str(i) + " " + str(node.weight) + "\n")
+        #f.write("After\n")
+        #for key in sorted_trees:
+        #    for i, node in enumerate(sorted_trees[key]):
+        #        f.write(str(i) + " " + str(node) + "\n")
 
         ### Generate meshes
         for obj in sel:     # For each tree
@@ -461,13 +459,15 @@ class CreateTree(Operator):
             bm.to_mesh(obj.data)
             bm.free()
             if tree_data.pr_enable_skinning:   # If not in preview-mode
-                # Turn the skeletal mesh into one with volume
+                 # Turn the skeletal mesh into one with volume
                 self.skin_skeleton(context, obj, obj_tn, tree_data)
 
         # Reset active object
         context.view_layer.objects.active = act
         
         f.close()
+        t_finish = time.perf_counter()
+        print(f"Finished in {t_finish-t_start} second(s)...")
         return {'FINISHED'}
 
 class PanelTemplate:
@@ -597,8 +597,6 @@ class SKSubPanel(PanelTemplate, Panel):
         
         grid.label(text="Base Radius")
         grid.prop(tree_data, "sk_base_radius", text="")
-        grid.label(text="Branch Radius Factor")
-        grid.prop(tree_data, "sk_branch_rad_fac", text="")
         grid.label(text="Minimum Radius")
         grid.prop(tree_data, "sk_min_radius", text="")
         grid.label(text="Branch Smoothing")
