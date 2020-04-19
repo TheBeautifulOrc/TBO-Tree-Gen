@@ -155,6 +155,7 @@ class Tree_Node:
     location : Vector
     parent_object : bpy.types.Object
     depth : int = 0
+    weight : int = 1
     child_indices : List[int] = field(default_factory=list)
 
 class CreateTree(Operator):
@@ -246,7 +247,7 @@ class CreateTree(Operator):
             if n_vec.length < math.sqrt(2):
                 n_vec = (corr[key][0] - loc).normalized()
             # Create child node
-            new_nodes.append(Tree_Node((loc + D * n_vec.normalized()), parent_node.parent_object, 0))
+            new_nodes.append(Tree_Node((loc + D * n_vec.normalized()), parent_node.parent_object))
         growth_nodes.extend(new_nodes)
         for p in kill:
             p_attr.remove(p)
@@ -343,6 +344,12 @@ class CreateTree(Operator):
                 new_tree_nodes[i].child_indices[j] = new_index  # Update the child index
         return new_tree_nodes
 
+    # Evaluates the nodes weight based on the number of recursive children it has
+    def calculate_weights(self, tree_nodes):
+        for node in reversed(tree_nodes):   # For each node (in reversed order)
+            for c in node.child_indices:    # Look at each chils
+                node.weight += tree_nodes[c].weight     # And add the child's (previoulsy calculated) weight to the nodes weight
+
     @classmethod
     def poll(cls, context):
         sel = context.selected_objects
@@ -418,10 +425,18 @@ class CreateTree(Operator):
         for key in sorted_trees:
             self.calculate_depths(sorted_trees[key])
         
+        ### Calculate weights
+        for key in sorted_trees:
+            self.calculate_weights(sorted_trees[key])
+
         ### Geometry reduction
         if tree_data.pr_enable_reduction:
             for key in sorted_trees:
                 sorted_trees[key] = self.reduce_tree_nodes(sorted_trees[key], tree_data)
+
+        for key in sorted_trees:
+            for i, node in enumerate(sorted_trees[key]):
+                f.write(str(i) + " " + str(node.weight) + "\n")
 
         ### Generate meshes
         for obj in sel:     # For each tree
