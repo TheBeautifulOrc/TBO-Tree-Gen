@@ -27,6 +27,7 @@ from mathutils import Vector
 from dataclasses import dataclass, field
 from collections import defaultdict
 from typing import List
+from multiprocessing import Process
 
 class TreeProperties(PropertyGroup):
     def shape_object_poll(self, obj):
