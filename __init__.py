@@ -89,7 +89,7 @@ class TreeProperties(PropertyGroup):
     sc_D : FloatProperty(
         name="Node Distance",
         description="Distance in between adjacent nodes",
-        default=0.1,
+        default=0.25,
         min=0.01, 
         max=1.0,
         unit='LENGTH'
@@ -125,7 +125,7 @@ class TreeProperties(PropertyGroup):
     sk_base_radius : FloatProperty(
         name="Base Radius",
         description="Radius at the very base of the tree trunk",
-        default=0.5,
+        default=0.15,
         min=0.0,
         soft_min=0.01,
         unit='LENGTH'
