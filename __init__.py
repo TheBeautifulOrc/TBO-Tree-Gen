@@ -1,14 +1,14 @@
 # Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
 
 bl_info = {
-    "name" : "TBO's TreeGenerator",
+    "name" : "TBO_TreeGenerator",
     "author" : "TheBeautifulOrc",
     "description" : "",
     "blender" : (2, 80, 0),
     "version" : (0, 8, 0),
     "location" : "3DView",
     "warning" : "",
-    "category" : "Add Mesh"
+    "category" : "Add Mesh" 
 }
 
 import bpy
@@ -16,8 +16,16 @@ import math
 
 from bpy.props import (PointerProperty, BoolProperty, IntProperty, FloatProperty, EnumProperty)
 from bpy.types import PropertyGroup
-from .Operators import CreateTree
-from .Panels import (MainPanel, PRSubPanel, APSubPanel, SCSubPanel, VRSubPanel, SKSubPanel)
+
+if "bpy" in locals():
+    import importlib
+    from . import Operators
+    importlib.reload(Operators)
+    from . import Panels
+    importlib.reload(Panels)
+else:
+    from . import Operators
+    from . import Panels
 
 class TreeProperties(PropertyGroup):
     def shape_object_poll(self, obj):
@@ -139,13 +147,13 @@ class TreeProperties(PropertyGroup):
 
 classes = (
     TreeProperties, 
-    CreateTree, 
-    MainPanel, 
-    PRSubPanel,
-    APSubPanel,
-    SCSubPanel,
-    VRSubPanel,
-    SKSubPanel
+    Operators.CreateTree, 
+    Panels.MainPanel, 
+    Panels.PRSubPanel,
+    Panels.APSubPanel,
+    Panels.SCSubPanel,
+    Panels.VRSubPanel,
+    Panels.SKSubPanel
 )
 
 def register():
