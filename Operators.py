@@ -14,25 +14,6 @@ from bpy.types import Operator
 from mathutils import Vector
 from .TreeNodes import Tree_Node, Tree_Node_Container
 
-# Adds and applies a skin modifier to the skeletal mesh
-def skin_skeleton(context, obj, tree_nodes, tree_data, temp_name="temp_skin_mod"):
-    # Initialize skin modifier
-    sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')     # Create the modifier
-    sk_mod.use_x_symmetry = False   #
-    sk_mod.use_y_symmetry = False   # Disable symmetry options
-    sk_mod.use_z_symmetry = False   #
-    sk_mod.branch_smoothing = tree_data.sk_smoothing    # Set the branch smoothing to the desired value
-    # Adjust MeshSkinVertices
-    obj.data.skin_vertices[0].data[0].use_root = True
-    for i, v in enumerate(obj.data.skin_vertices[0].data):
-        weight_factor = tree_nodes[i].weight_factor
-        rad = tree_data.sk_base_radius * weight_factor
-        if rad < tree_data.sk_min_radius:
-            rad = tree_data.sk_min_radius
-        v.radius = (rad, rad) 
-    context.view_layer.objects.active = obj
-    bpy.ops.object.modifier_apply(modifier=temp_name)
-
 class CreateTree(Operator):
     """Operator that creates a pseudo-random realistic tree"""
     bl_idname = "tbo.create_tree"
@@ -83,6 +64,25 @@ class CreateTree(Operator):
         for i in range(np_arr.shape[0]):
             arr.append(Vector((np_arr[i,:])))
         return arr
+    
+    # Adds and applies a skin modifier to the skeletal mesh
+    def skin_skeleton(self, context, obj, tree_nodes, tree_data, temp_name="temp_skin_mod"):
+        # Initialize skin modifier
+        sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')     # Create the modifier
+        sk_mod.use_x_symmetry = False   #
+        sk_mod.use_y_symmetry = False   # Disable symmetry options
+        sk_mod.use_z_symmetry = False   #
+        sk_mod.branch_smoothing = tree_data.sk_smoothing    # Set the branch smoothing to the desired value
+        # Adjust MeshSkinVertices
+        obj.data.skin_vertices[0].data[0].use_root = True
+        for i, v in enumerate(obj.data.skin_vertices[0].data):
+            weight_factor = tree_nodes[i].weight_factor
+            rad = tree_data.sk_base_radius * weight_factor
+            if rad < tree_data.sk_min_radius:
+                rad = tree_data.sk_min_radius
+            v.radius = (rad, rad) 
+        context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=temp_name)
 
     @classmethod
     def poll(cls, context):
