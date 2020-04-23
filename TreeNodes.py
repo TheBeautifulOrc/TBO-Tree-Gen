@@ -118,7 +118,7 @@ class Tree_Node_Container(list):
     # Seperates a list of mixed nodes.
     # Returns a list of all nodes that have obj as parent.
     def separate_nodes(self, obj):
-        separate_nodes = Tree_Node_Container()
+        separate_nodes = Tree_Nodes()
         corr = {}
         corr_counter = 0
         for i, node in enumerate(self):
