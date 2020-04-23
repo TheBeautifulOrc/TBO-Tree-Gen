@@ -23,6 +23,8 @@ if "bpy" in locals():
     importlib.reload(Operators)
     from . import Panels
     importlib.reload(Panels)
+    from . import TreeNodes
+    importlib.reload(TreeNodes)
 else:
     from . import Operators
     from . import Panels
