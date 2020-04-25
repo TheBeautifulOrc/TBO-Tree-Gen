@@ -92,8 +92,6 @@ class CreateTree(Operator):
 
     # Adds and applies a skin modifier to the skeletal mesh
     def skin_skeleton(self, context, obj, tree_nodes, tree_data, temp_name="temp_skin_mod"):
-        context_override = context.copy()   # New temporary context
-        context_override['active_object'] = obj    # The passed object is viewed as selected
         # Initialize skin modifier
         sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')     # Create the modifier
         sk_mod.use_x_symmetry = False   #
@@ -108,7 +106,7 @@ class CreateTree(Operator):
             if rad < tree_data.sk_min_radius:
                 rad = tree_data.sk_min_radius
             v.radius = (rad, rad) 
-        bpy.ops.object.modifier_apply(context_override, modifier=temp_name)
+        bpy.ops.object.modifier_apply(modifier=temp_name)
 
     @classmethod
     def poll(cls, context):
@@ -127,7 +125,10 @@ class CreateTree(Operator):
 
     def execute(self, context):
         # Debug information
-        os.system("clear")
+        try:
+            os.system("clear")  # Will fail on Windows 
+        except:
+            pass
         f = open("/tmp/log.txt", 'w')
         f.write("Debug Info:\n")
         t_start = time.perf_counter()
@@ -183,7 +184,9 @@ class CreateTree(Operator):
             # Create a separate node list
             sorted_trees[obj] = all_tree_nodes.separate_by_object(obj)
         
+        bpy.ops.object.select_all(action='DESELECT')
         for obj in sel:    
+            obj.select_set(True)
             obj_tn = sorted_trees[obj]  # For each separate list of tree nodes 
             ### Calculate weights
             obj_tn.calculate_weights()
@@ -196,25 +199,28 @@ class CreateTree(Operator):
                 # To avoid glitches with the skin modifier 
                 # each branch is skinned individually
                 branches = obj_tn.separated_branches()  # Get separeted branches 
+                self.generate_skeltal_mesh(obj, []) # Clear the object
+                temp_meshes = []
+                temp_objects = []
                 for i, branch in enumerate(branches):
                     # Create a new temporary  object
                     # based on a temporary mesh
-                    temp_mesh = bpy.data.meshes.new(f"temp_mesh")
-                    # If this is the first branch, the base object can be used instead
-                    temp_obj = obj if i == 0 else bpy.data.objects.new(f"temp_obj", temp_mesh)
+                    temp_mesh = bpy.data.meshes.new(f"temp_mesh{i}")
+                    temp_meshes.append(temp_mesh)
+                    temp_obj = bpy.data.objects.new(f"temp_obj{i}", temp_mesh)
+                    temp_objects.append(temp_obj)
+                    context.collection.objects.link(temp_obj)
+                    temp_obj.select_set(True)
                     # Generate skeletal mesh of the branch
                     self.generate_skeltal_mesh(temp_obj, branch)
                     # Turn the skeletal mesh into one with volume
+                    context.view_layer.objects.active = temp_obj
                     self.skin_skeleton(context, temp_obj, branch, tree_data)
-                    if i != 0:
-                        context_override = context.copy()
-                        context_override['active_object'] = obj
-                        temp_bool_mod = obj.modifiers.new(name="temp_bool", type='BOOLEAN')
-                        temp_bool_mod.operation = 'UNION'
-                        temp_bool_mod.object = temp_obj
-                        bpy.ops.object.modifier_apply(modifier="temp_bool")
-                        bpy.data.objects.remove(temp_obj)
-                    bpy.data.meshes.remove(temp_mesh)
+                # Join meshes
+                context.view_layer.objects.active = obj
+                bpy.ops.object.join()
+                # Remove temporary meshes
+                [bpy.data.meshes.remove(temp_mesh) for temp_mesh in temp_meshes]
             else:   # If in preview-mode only create a skeleton
                 self.generate_skeltal_mesh(obj, obj_tn)
                                 
