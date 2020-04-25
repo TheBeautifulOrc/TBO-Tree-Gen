@@ -18,16 +18,21 @@ class Tree_Node:
     weight_factor : float = 0.0
     child_indices : List[int] = field(default_factory=list)
     
-class Tree_Node_Container(list):    
+class Tree_Node_Container(list):
+    # Returns a list of indices that point to the corresponding nodes parent.   
+    def parent_indices(self):
+        parent_indices = [0] * len(self)  # List of parent indices
+        for i, node in enumerate(self):   # Setup parent indices
+            for c in node.child_indices:
+                parent_indices[c] = i
+        return parent_indices
+     
     # Reduces the vertex count of a list of tree nodes
     # Returns a new list of tree nodes
     def reduce_tree_nodes(self, tree_data):
         crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
-        parent_indices = [0] * len(self)  # List of parent indices
+        parent_indices = self.parent_indices()
         correspondence = {}     # Correspondences between indices in before and after reduction
-        for i, node in enumerate(self):   # Setup parent indices
-            for c in node.child_indices:
-                parent_indices[c] = i
         # Reduction algorithm
         for i, node in enumerate(self[1:]): # Foreach node except the root node (since it always remains unchanged) 
             i += 1  # Due to the nature of enumerate i is not matching the elements and must be adjusted
@@ -59,7 +64,7 @@ class Tree_Node_Container(list):
         for node in reversed(self):   # For each node (in reversed order)
             for c in node.child_indices:    # Look at each child
                 node.weight += self[c].weight     # And add the child's (previoulsy calculated) weight to the nodes weight
-            node.weight_factor = node.weight / n_nodes  # The weight factor is ratio between all nodes and the nodes that are connected to this particular node
+            node.weight_factor = math.sqrt(node.weight / n_nodes)  # The weight factor is ratio between all nodes and the nodes that are connected to this particular node
 
     # Iterates the growth algorithm over the given tree nodes.
     # Returns 'True' if new nodes have been added.
@@ -117,7 +122,7 @@ class Tree_Node_Container(list):
 
     # Seperates a list of mixed nodes.
     # Returns a list of all nodes that have obj as parent.
-    def separate_nodes(self, obj):
+    def separate_by_object(self, obj):
         separate_nodes = Tree_Node_Container()
         corr = {}
         corr_counter = 0
@@ -130,3 +135,40 @@ class Tree_Node_Container(list):
             for i, c in enumerate(sn.child_indices):
                 sn.child_indices[i] = corr[c]
         return separate_nodes
+
+    # Returns the tree branch by branch. 
+    # Nodes which are branching points will appear 
+    # both in their parent and child branch. 
+    def separated_branches(self):
+        # Helper function that takes a node and returns 
+        # all branches emerging form it as lists of nodes. 
+        def lookup_branches(node):
+            branches = []
+            for c in node.child_indices:
+                branch = [node] # Initialize branch
+                child = self[c] # Prepare iterative algorithm
+                while(len(child.child_indices) == 1):   # The branch ends, if a branching point or endpoint is hit
+                    branch.append(child)    # Add chosen node to branch
+                    child = self[child.child_indices[0]]   # Use the (now deleted) index to find the next node of the branch
+                branch.append(child)    # Add final node
+                branch_copy = [] 
+                # Disconnect the branch list from the original list in order to make changes to the 
+                # child indices without disrupting everything else.
+                # This has to be done the manual (idiotic) way because copy.deepcopy() won't
+                # work on Tree_Node_Containers because of pickle (of course)...
+                for i, n in enumerate(branch):
+                    branch_copy.append(Tree_Node(
+                        location=n.location,
+                        parent_object=n.parent_object,
+                        depth=n.depth,
+                        weight=n.weight,
+                        weight_factor=n.weight_factor,
+                        child_indices=[i+1] if i+1 < len(branch) else []
+                    ))
+                branches.append(branch_copy) # Add this list to the return value
+            return branches
+        
+        branch_initiators = [self[0]]   # Root node marks the beginning of the first "branch"
+        branch_initiators.extend([node for node in self if len(node.child_indices) > 1])    # All branching points mark nre branches
+        ret_val = [branch for branches in [lookup_branches(initiator) for initiator in branch_initiators] for branch in branches]
+        return ret_val

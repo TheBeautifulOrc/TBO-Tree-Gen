@@ -5,7 +5,7 @@ bl_info = {
     "author" : "TheBeautifulOrc",
     "description" : "",
     "blender" : (2, 80, 0),
-    "version" : (0, 8, 0),
+    "version" : (0, 8, 2),
     "location" : "3DView",
     "warning" : "",
     "category" : "Add Mesh" 

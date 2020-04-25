@@ -64,9 +64,36 @@ class CreateTree(Operator):
         for i in range(np_arr.shape[0]):
             arr.append(Vector((np_arr[i,:])))
         return arr
-    
+   
+    # Takes in an object and a Tree_Node_Container to generate 
+    # the objects skeletal mesh using bmesh
+    def generate_skeltal_mesh(self, obj, obj_tn):
+        # Calculate vertices in local space 
+        verts = [tn.location for tn in obj_tn]
+        tf = obj.matrix_world.inverted()
+        verts = self.transform_points(tf, verts)
+        # Create bmesh
+        bm = bmesh.new()
+        # Insert vertices
+        for v in verts:
+            bm.verts.new(v)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        # Create edges
+        for p, n in enumerate(obj_tn):
+            for c in n.child_indices:
+                if p == c:
+                    print(obj_tn)
+                bm.edges.new((bm.verts[p], bm.verts[c]))
+        bm.edges.index_update()
+        bm.edges.ensure_lookup_table()
+        bm.to_mesh(obj.data)
+        bm.free()
+
     # Adds and applies a skin modifier to the skeletal mesh
     def skin_skeleton(self, context, obj, tree_nodes, tree_data, temp_name="temp_skin_mod"):
+        context_override = context.copy()   # New temporary context
+        context_override['active_object'] = obj    # The passed object is viewed as selected
         # Initialize skin modifier
         sk_mod = obj.modifiers.new(name=temp_name, type='SKIN')     # Create the modifier
         sk_mod.use_x_symmetry = False   #
@@ -81,8 +108,7 @@ class CreateTree(Operator):
             if rad < tree_data.sk_min_radius:
                 rad = tree_data.sk_min_radius
             v.radius = (rad, rad) 
-        context.view_layer.objects.active = obj
-        bpy.ops.object.modifier_apply(modifier=temp_name)
+        bpy.ops.object.modifier_apply(context_override, modifier=temp_name)
 
     @classmethod
     def poll(cls, context):
@@ -135,7 +161,7 @@ class CreateTree(Operator):
             tree_nodes.append(Tree_Node(tree_obj.location, tree_obj))
             dist = kdt_p_attr.find(tree_obj.location)[2]
             while (dist > tree_data.sc_d_i * tree_data.sc_D and tree_data.sc_d_i != 0):
-                d_i = dist + tree_data.sc_d_i * tree_data.sc_D   # Idjust the attr. point influence so the stem can grow
+                d_i = dist + tree_data.sc_d_i * tree_data.sc_D   # Adjust the attr. point influence so the stem can grow
                 tree_nodes.iterate_growth(p_attr, tree_data, d_i)
                 dist = kdt_p_attr.find(tree_nodes[-1].location)[2]
             for n in tree_nodes:
@@ -155,47 +181,43 @@ class CreateTree(Operator):
         sorted_trees = {}
         for obj in sel:     # For each tree
             # Create a separate node list
-            sorted_trees[obj] = all_tree_nodes.separate_nodes(obj)
+            sorted_trees[obj] = all_tree_nodes.separate_by_object(obj)
         
-        ### Calculate depths
-        for key in sorted_trees:
-            sorted_trees[key].calculate_depths()
-        
-        ### Calculate weights
-        for key in sorted_trees:
-            sorted_trees[key].calculate_weights()
-
-        ### Geometry reduction
-        if tree_data.pr_enable_reduction:
-            for key in sorted_trees:
-                sorted_trees[key].reduce_tree_nodes(tree_data)
-
-        ### Generate meshes
-        for obj in sel:     # For each tree
-            obj_tn = sorted_trees[obj]
-            # Calculate vertices in local space 
-            verts = [tn.location for tn in obj_tn]
-            tf = obj.matrix_world.inverted()
-            verts = self.transform_points(tf, verts)
-            # Create bmesh
-            bm = bmesh.new()
-            # Insert vertices
-            for v in verts:
-                bm.verts.new(v)
-            bm.verts.index_update()
-            bm.verts.ensure_lookup_table()
-            # Create edges
-            for p, n in enumerate(obj_tn):
-                for c in n.child_indices:
-                    bm.edges.new((bm.verts[p], bm.verts[c]))
-            bm.edges.index_update()
-            bm.edges.ensure_lookup_table()
-            bm.to_mesh(obj.data)
-            bm.free()
-            if tree_data.pr_enable_skinning:   # If not in preview-mode
-                 # Turn the skeletal mesh into one with volume
-                self.skin_skeleton(context, obj, obj_tn, tree_data)
-
+        for obj in sel:    
+            obj_tn = sorted_trees[obj]  # For each separate list of tree nodes 
+            ### Calculate weights
+            obj_tn.calculate_weights()
+            ### Geometry reduction
+            if tree_data.pr_enable_reduction:
+                obj_tn.reduce_tree_nodes(tree_data)
+            ### Generate mesh
+            # If not in preview-mode create mesh with volume
+            if tree_data.pr_enable_skinning:   
+                # To avoid glitches with the skin modifier 
+                # each branch is skinned individually
+                branches = obj_tn.separated_branches()  # Get separeted branches 
+                for i, branch in enumerate(branches):
+                    # Create a new temporary  object
+                    # based on a temporary mesh
+                    temp_mesh = bpy.data.meshes.new(f"temp_mesh")
+                    # If this is the first branch, the base object can be used instead
+                    temp_obj = obj if i == 0 else bpy.data.objects.new(f"temp_obj", temp_mesh)
+                    # Generate skeletal mesh of the branch
+                    self.generate_skeltal_mesh(temp_obj, branch)
+                    # Turn the skeletal mesh into one with volume
+                    self.skin_skeleton(context, temp_obj, branch, tree_data)
+                    if i != 0:
+                        context_override = context.copy()
+                        context_override['active_object'] = obj
+                        temp_bool_mod = obj.modifiers.new(name="temp_bool", type='BOOLEAN')
+                        temp_bool_mod.operation = 'UNION'
+                        temp_bool_mod.object = temp_obj
+                        bpy.ops.object.modifier_apply(modifier="temp_bool")
+                        bpy.data.objects.remove(temp_obj)
+                    bpy.data.meshes.remove(temp_mesh)
+            else:   # If in preview-mode only create a skeleton
+                self.generate_skeltal_mesh(obj, obj_tn)
+                                
         # Reset active object
         context.view_layer.objects.active = act
         
