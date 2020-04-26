@@ -33,21 +33,28 @@ class Tree_Node_Container(list):
         crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
         parent_indices = self.parent_indices()
         correspondence = {}     # Correspondences between indices in before and after reduction
+        def mark_pending_kill(node, parent):
+            # Replace parents connection to node with connection children
+            parent.child_indices = [c for c in parent.child_indices if c != i]  # Remove node's entry
+            parent.child_indices.extend([c for c in node.child_indices])    # Append child entries
+            # Replace children's reference to node with reference to parent
+            for c in node.child_indices:
+                parent_indices[c] = parent_indices[i]
+            self[i] = None    # Mark node as pending removal
         # Reduction algorithm
         for i, node in enumerate(self[1:]): # Foreach node except the root node (since it always remains unchanged) 
             i += 1  # Due to the nature of enumerate i is not matching the elements and must be adjusted
-            if len(node.child_indices) == 1:    # Only nodes with exactly one child are candidates for reduction
-                parent = self[parent_indices[i]]
+            parent = self[parent_indices[i]]
+            clearance = (node.location - parent.location).length
+            if clearance < (parent.weight_factor * tree_data.sk_base_radius):
+                mark_pending_kill(node, parent)
+            elif len(node.child_indices) == 1:    # Only nodes with exactly one child are candidates for reduction
                 child = self[node.child_indices[0]]
                 vec1 = Vector(node.location - parent.location)  # Vector between node's parent and itself
                 vec2 = Vector(child.location - parent.location) # Vector between node's parent and it's child
                 angle = vec1.angle(vec2, 0) # Calculate the angle between those two vectors
                 if angle < crit_angle:  # If the angle is smaller that specified, the node is not essential
-                    # Replace parents connection to node with connection to child
-                    parent.child_indices = [node.child_indices[0] if c == i else c for c in parent.child_indices]
-                    # Replace child reference to node with reference to parent
-                    parent_indices[node.child_indices[0]] = parent_indices[i]
-                    self[i] = None    # Mark child as pending removal
+                    mark_pending_kill(node, parent)
         # Update correspondences 
         counter_new = 0
         for counter_old, node in enumerate(self):
@@ -135,40 +142,3 @@ class Tree_Node_Container(list):
             for i, c in enumerate(sn.child_indices):
                 sn.child_indices[i] = corr[c]
         return separate_nodes
-
-    # Returns the tree branch by branch. 
-    # Nodes which are branching points will appear 
-    # both in their parent and child branch. 
-    def separated_branches(self):
-        # Helper function that takes a node and returns 
-        # all branches emerging form it as lists of nodes. 
-        def lookup_branches(node):
-            branches = []
-            for c in node.child_indices:
-                branch = [node] # Initialize branch
-                child = self[c] # Prepare iterative algorithm
-                while(len(child.child_indices) == 1):   # The branch ends, if a branching point or endpoint is hit
-                    branch.append(child)    # Add chosen node to branch
-                    child = self[child.child_indices[0]]   # Use the (now deleted) index to find the next node of the branch
-                branch.append(child)    # Add final node
-                branch_copy = [] 
-                # Disconnect the branch list from the original list in order to make changes to the 
-                # child indices without disrupting everything else.
-                # This has to be done the manual (idiotic) way because copy.deepcopy() won't
-                # work on Tree_Node_Containers because of pickle (of course)...
-                for i, n in enumerate(branch):
-                    branch_copy.append(Tree_Node(
-                        location=n.location,
-                        parent_object=n.parent_object,
-                        depth=n.depth,
-                        weight=n.weight,
-                        weight_factor=n.weight_factor,
-                        child_indices=[i+1] if i+1 < len(branch) else []
-                    ))
-                branches.append(branch_copy) # Add this list to the return value
-            return branches
-        
-        branch_initiators = [self[0]]   # Root node marks the beginning of the first "branch"
-        branch_initiators.extend([node for node in self if len(node.child_indices) > 1])    # All branching points mark nre branches
-        ret_val = [branch for branches in [lookup_branches(initiator) for initiator in branch_initiators] for branch in branches]
-        return ret_val

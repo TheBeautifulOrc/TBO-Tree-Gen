@@ -195,35 +195,11 @@ class CreateTree(Operator):
                 obj_tn.reduce_tree_nodes(tree_data)
             ### Generate mesh
             # If not in preview-mode create mesh with volume
+            self.generate_skeltal_mesh(obj, obj_tn)
             if tree_data.pr_enable_skinning:   
-                # To avoid glitches with the skin modifier 
-                # each branch is skinned individually
-                branches = obj_tn.separated_branches()  # Get separeted branches 
-                self.generate_skeltal_mesh(obj, []) # Clear the object
-                temp_meshes = []
-                temp_objects = []
-                for i, branch in enumerate(branches):
-                    # Create a new temporary  object
-                    # based on a temporary mesh
-                    temp_mesh = bpy.data.meshes.new(f"temp_mesh{i}")
-                    temp_meshes.append(temp_mesh)
-                    temp_obj = bpy.data.objects.new(f"temp_obj{i}", temp_mesh)
-                    temp_objects.append(temp_obj)
-                    context.collection.objects.link(temp_obj)
-                    temp_obj.select_set(True)
-                    # Generate skeletal mesh of the branch
-                    self.generate_skeltal_mesh(temp_obj, branch)
-                    # Turn the skeletal mesh into one with volume
-                    context.view_layer.objects.active = temp_obj
-                    self.skin_skeleton(context, temp_obj, branch, tree_data)
-                # Join meshes
                 context.view_layer.objects.active = obj
-                bpy.ops.object.join()
-                # Remove temporary meshes
-                [bpy.data.meshes.remove(temp_mesh) for temp_mesh in temp_meshes]
-            else:   # If in preview-mode only create a skeleton
-                self.generate_skeltal_mesh(obj, obj_tn)
-                                
+                self.skin_skeleton(context, obj, obj_tn, tree_data)    
+            
         # Reset active object
         context.view_layer.objects.active = act
         
