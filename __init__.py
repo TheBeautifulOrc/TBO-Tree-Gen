@@ -35,6 +35,11 @@ class TreeProperties(PropertyGroup):
             and (obj not in bpy.context.selected_objects)
             and (obj.name in bpy.data.objects)
         )
+        
+    def sk_profile_curve_poll(self, obj):
+        return ((obj.type == 'CURVE') 
+            and (obj.name in bpy.data.objects)
+        )
 
     pr_enable_reduction : BoolProperty(
         name="Enable Vertex Reduction",

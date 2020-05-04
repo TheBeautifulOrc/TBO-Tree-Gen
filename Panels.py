@@ -37,7 +37,7 @@ class PRSubPanel(PanelTemplate, Panel):
         grid = layout.grid_flow(row_major=True, columns=2)
         grid.label(text="Vertex Reduction")
         grid.prop(tree_data, "pr_enable_reduction", text="")
-        grid.label(text="Skin Modifier")
+        grid.label(text="Tree Skinning")
         grid.prop(tree_data, "pr_enable_skinning", text="")
 
 class APSubPanel(PanelTemplate, Panel):

@@ -108,6 +108,87 @@ class CreateTree(Operator):
             v.radius = (rad, rad) 
         bpy.ops.object.modifier_apply(modifier=temp_name)
 
+    # Takes 1x3 numpy array (3D vector) and returns it's magnitude
+    def np_vec_magnitude(self, vec):
+        return np.sqrt(np.sum(np.power(vec, 2)))
+    
+    # Takes 1x3 numpy array (3D vector) and returns a normalized 1x3 numpy array
+    def np_vec_normalized(self, vec):
+        mag = self.np_vec_magnitude(vec) 
+        ret_val = vec/mag if mag != 0 else np.array([0,0,0])
+        return ret_val
+
+    # Takes in an object and a Tree_Node_Container to generate 
+    # the objects mesh using bmesh
+    def generate_mesh(self, obj, obj_tn, tree_data):
+        n_nodes = len(obj_tn)        
+        # Create bmesh
+        bm = bmesh.new()
+        
+        # Copy relevant node data in numpy arrays
+        node_positions = np.array([tn.location for tn in obj_tn], dtype=np.float64)
+        node_radii = np.array([tn.weight_factor * tree_data.sk_base_radius for tn in obj_tn], dtype=np.float64)
+        # Setup additional list of parent indices 
+        parents = np.zeros(n_nodes, dtype=np.int)
+        for p, parent in enumerate(obj_tn):
+            for c in parent.child_indices:
+                parents[c] = p
+        
+        # Container for the generated coordinates
+        orbiters = np.zeros((n_nodes, 3), dtype=np.float64)
+        
+        # Foreach node 
+        for i, tn in enumerate(obj_tn):
+            # Get positions of all relevant nodes 
+            node_pos = node_positions[i]
+            parent_pos = node_positions[parents[i]]
+            rel_parent_pos = parent_pos - node_pos
+            children_pos = [node_positions[c] for c in tn.child_indices]
+            rel_children_pos = [child_pos - node_pos for child_pos in children_pos]
+            
+            # Define local axises for easier math
+            local_axises = np.zeros((3,3), dtype=np.float64)
+            if (i == 0):    # On first node the global coordinates are used
+                local_axises[0] = [1,0,0]
+                local_axises[1] = [0,1,0]
+                local_axises[2] = [0,0,1]
+            else:   # On subsequent nodes
+                # Normalized vector between parent and node defines "up"
+                local_axises[2] =  self.np_vec_normalized(node_pos - parent_pos)   
+                if len(children_pos) > 0:   # If the node has children
+                    # The vector pointing to the first child is used for further calculations
+                    mult_vec = children_pos[0] - node_pos  
+                else:   # If there are no children
+                    # Global x is used (or global y if global x is identical to local z)
+                    mult_vec = np.array([1,0,0]) if self.np_vec_magnitude(local_axises[2] - np.array([1,0,0])) > 0.2 else np.array([0,1,0]) 
+                # Local "right" is an arbitrary vector orthogonal to local the z-axis
+                local_axises[0] = self.np_vec_normalized(np.cross(local_axises[2], mult_vec))
+                # Local "forward" is chosen to generate an ortho-normal system
+                local_axises[1] = self.np_vec_normalized(np.cross(local_axises[2], local_axises[0]))
+        
+            # All neighbours (parent and children) get mapped to a direction in local coordinate space
+            neighbor_directions = {'z-': rel_parent_pos if i!=0 else None, 'z+': None, 'x-': None, 'x+': None, 'y-': None, 'y+': None}
+            for rel_child_pos in rel_children_pos:
+                directional_magnitudes = np.dot(local_axises, rel_child_pos)
+                dict_str = ""
+                x, y, z = directional_magnitudes # If the x-component is dominant
+                if  abs(x) >= abs(y) and abs(x) > abs(z):
+                    dict_str += "x"
+                    dict_str += "+" if x > 0 else "-"
+                if  abs(y) >= abs(z) and abs(y) > abs(x):
+                    dict_str += "y"
+                    dict_str += "+" if y > 0 else "-"
+                if  abs(z) >= abs(x) and abs(z) > abs(y):
+                    dict_str += "z"
+                    dict_str += "+" if z > 0 else "-"
+                neighbor_directions[dict_str] = rel_child_pos
+            
+            # Create planes on whose intersections the orbiters will sit
+            
+            
+        # Destroy bmesh
+        bm.free()
+
     @classmethod
     def poll(cls, context):
         sel = context.selected_objects
@@ -148,8 +229,8 @@ class CreateTree(Operator):
         all_tree_nodes = Tree_Node_Container()
         # Setup kd-tree of attraction points
         kdt_p_attr = mathutils.kdtree.KDTree(tree_data.n_p_attr)
-        for p in range(tree_data.n_p_attr):
-            kdt_p_attr.insert(p_attr[p], p)
+        for i, p in enumerate(p_attr):
+            kdt_p_attr.insert(p, i)
         kdt_p_attr.balance()
         # Grow stems
         # This is different from the regular iterations since the root nodes 
@@ -184,7 +265,6 @@ class CreateTree(Operator):
             # Create a separate node list
             sorted_trees[obj] = all_tree_nodes.separate_by_object(obj)
         
-        bpy.ops.object.select_all(action='DESELECT')
         for obj in sel:    
             obj.select_set(True)
             obj_tn = sorted_trees[obj]  # For each separate list of tree nodes 
@@ -194,11 +274,12 @@ class CreateTree(Operator):
             if tree_data.pr_enable_reduction:
                 obj_tn.reduce_tree_nodes(tree_data)
             ### Generate mesh
+            if not tree_data.pr_enable_skinning:
+                self.generate_skeltal_mesh(obj, obj_tn) # Generate skeleton
             # If not in preview-mode create mesh with volume
-            self.generate_skeltal_mesh(obj, obj_tn)
-            if tree_data.pr_enable_skinning:   
-                context.view_layer.objects.active = obj
-                self.skin_skeleton(context, obj, obj_tn, tree_data)    
+            else:
+                self.generate_mesh(obj, obj_tn, tree_data)
+                
             
         # Reset active object
         context.view_layer.objects.active = act
