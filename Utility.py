@@ -53,8 +53,3 @@ def get_points_in_object(context, tree_data, temp_name="temp_part_sys"):
     for i in range(np_arr.shape[0]):
         arr.append(Vector((np_arr[i,:])))
     return arr
-
-@dataclass
-class Plane:
-    base : np.array
-    normal : np.array

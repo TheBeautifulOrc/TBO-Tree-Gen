@@ -13,11 +13,12 @@ from typing import List
 from mathutils import Vector
 
 from .TreeNodes import Tree_Node, Tree_Node_Container
-from .Utility import transform_points, Plane
+from .Utility import transform_points
 from .TreeProperties import TreeProperties
         
 class Tree_Object:
-    def __init__(self, bl_object : bpy.types.Object, 
+    def __init__(self, 
+                 bl_object : bpy.types.Object, 
                  nodes : Tree_Node_Container, 
                  tree_data : TreeProperties):
         self.bl_object = bl_object
@@ -85,8 +86,11 @@ class Tree_Object:
         local_coordinates = np.stack([x_vecs, y_vecs, z_vecs], 1)
         local_coordinates[0] = [[1,0,0], [0,1,0], [0,0,1]]  # Local space of root node always aligns with world space
         
-        # Calculate map that assigns a direction reltive to local space
-        # to each individual neighbor of each node
+        # Calculate map that assigns a direction relative to local space
+        # to each individual neighbor of each node. 
+        # The directions are integers mapped like this: 
+        #  0,  1,  2,  3,  4,  5
+        # +x, -x, +y, -y, +z, -z
         dir_magnitudes = np.einsum('ijl,ikl->jik', local_coordinates, neighbor_unit_vecs)
         abs_magnitudes = np.abs(dir_magnitudes)
         direction_maps = np.full((n_nodes, 6), np.nan)
@@ -97,13 +101,14 @@ class Tree_Object:
             direction_maps[np.logical_and(mask, np.less(dir_magnitudes[i], 0))] = i*2+1
         
         # Calculate planes: 
-        # All planes are defined in normal-form i.e. they have a base vector defining one point on the plane and a
-        # normal vector defining the orientation of the plane. These planes will be used to calculate the position
-        # of the vertices for the final mesh.
-        planes = np.full((n_nodes, 6, 2, 3), np.nan, dtype=np.float64)
-        plane_normals = planes[:,:,0,:]
-        plane_bases = planes[:,:,1,:]
-        # Calculate normals
+        # All planes are defined in normal-form i.e. they have a normal vector defining the orientation of the plane 
+        # and a radius (that get's multiplied with the normal to get the base vector). 
+        # These planes will be used to calculate the position of the vertices for the final mesh.
+        plane_normals = np.full((n_nodes, 6, 3), np.nan, dtype=np.float64)
+        plane_radii = np.full((n_nodes, 6), np.nan, dtype=np.float64)
+        # Calculate normals:
+        # The normals are always the vectors pointing to the adjacent neighbor if present.
+        # Else they're the corresponding local coordinate.
         # Create offsets for indexing over the entire map
         map_offset = np.repeat(np.arange(n_nodes), 6).reshape(n_nodes, 6) * 6
         offset_dir_map = direction_maps + map_offset    # Offset the direction map
@@ -112,13 +117,43 @@ class Tree_Object:
             = neighbor_unit_vecs[existing_dirs] # Use neighbor_vectors as normals for planes whenever possible
         missing_entries = np.isnan(plane_normals)   # Create mask for all missing plane normals
         # This array will be multiplied with the local coordinates to recieve an alternating pattern (x+, x-, ...)
-        inversion_mask = np.repeat(np.array([[1,-1,1,-1,1,-1]]), n_nodes, axis=0)   
+        inversion_mask = np.tile(np.array([1,-1,1,-1,1,-1]), (n_nodes, 1)) 
         # Multiply local coordinates with the inversion mask
         directional_coords = np.einsum('ijk,ij->ijk' ,np.repeat(local_coordinates, 2, -2), inversion_mask)
         plane_normals[missing_entries] = directional_coords[missing_entries]    # Fill up the missing entries 
         # Calculate base vectors
         plane_base_radii = np.repeat(node_radii, 6).reshape(n_nodes, 6)
-        plane_base_lengths = np.minimum(plane_base_radii, np.divide(neighbor_dists, 2).reshape(n_nodes, 6))
-        missing_entries = np.isnan(plane_base_lengths)
-        plane_base_lengths[missing_entries] = plane_base_radii[missing_entries]
+        plane_radii = np.minimum(plane_base_radii, np.divide(neighbor_dists, 4).reshape(n_nodes, 6))
+        missing_entries = np.isnan(plane_radii)
+        plane_radii[missing_entries] = plane_base_radii[missing_entries]
         
+        # Calculate vertices:
+        # Each vertex is an intersection point of three of the planes calculated above. Six planes on each node result
+        # in a total of 8 intersection points (arranged like the corners of a cube). 
+        # The permutation core defines which planes will be intersected with each other for every node.
+        # It makes sure that all possible intersections of neighboring planes (never oppsing planes) are calculated.
+        # The indices in the core are correspondent to the indices of the direction map.
+        permutation_core = np.transpose(np.array([[0,0,0,0,1,1,1,1],[2,3,4,5,2,3,4,5],[5,4,2,3,5,4,2,3]]))
+        offset_matrix = np.repeat(np.arange(n_nodes) * 6, 24).reshape(n_nodes, 8, 3)
+        permutation_matrix = np.tile(permutation_core, (n_nodes, 1)).reshape(n_nodes, 8, 3)
+        permutation_matrix += offset_matrix # Offset the permutation core (make indices for each node unique)
+        # Lefthand-side of the linear equations system (x (dot) normal_vec)
+        lin_eqs_lhs = np.full((n_nodes, 6, 3, 3), np.nan, dtype=np.float64)
+        lin_eqs_lhs = plane_normals.reshape(-1,3)[permutation_matrix]
+        # Righthand-side of the linear system (base_vector)
+        lin_eqs_rhs = plane_radii.reshape(-1)[permutation_matrix]
+        # Solve for x (the resulting intersections)
+        rel_verts = la.solve(lin_eqs_lhs, lin_eqs_rhs)
+        # Add the result to the initial node locations for non-relative values
+        verts = rel_verts + np.repeat(node_locations, 8, axis=0).reshape(n_nodes, 8, 3)
+        
+        # Create bmesh:
+        bm = bmesh.new()
+        # Take the calculated vertices and write them into a bmesh (they'll have the same order as before)
+        for v in verts.reshape(-1,3):
+            bm.verts.new(v)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        
+        bm.to_mesh(self.bl_object.data)
+        bm.free()
