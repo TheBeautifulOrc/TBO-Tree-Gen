@@ -2,6 +2,7 @@
 
 import bpy
 from bpy.types import (Operator, Panel, PropertyGroup)
+from .TreeProperties import TreeProperties
 
 class PanelTemplate:
     bl_space_type = 'VIEW_3D'

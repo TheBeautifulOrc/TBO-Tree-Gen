@@ -48,7 +48,7 @@ class Tree_Object:
         bm.free()
     
     # Generates the objects final mesh using bmesh 
-    def generate_mesh(self):
+    def generate_mesh_cubic(self):
         n_nodes = len(self.nodes)
         # Get node locations
         node_locations = np.array([n.location for n in self.nodes], dtype=np.float64)
@@ -123,7 +123,8 @@ class Tree_Object:
         plane_normals[missing_entries] = directional_coords[missing_entries]    # Fill up the missing entries 
         # Calculate base vectors
         plane_base_radii = np.repeat(node_radii, 6).reshape(n_nodes, 6)
-        plane_radii = np.minimum(plane_base_radii, np.divide(neighbor_dists, 4).reshape(n_nodes, 6))
+        np.reshape(plane_radii, (-1))[offset_dir_map[existing_dirs].astype(int)] \
+            = np.minimum(plane_base_radii, np.divide(neighbor_dists, 3).reshape(n_nodes, 6))[existing_dirs]
         missing_entries = np.isnan(plane_radii)
         plane_radii[missing_entries] = plane_base_radii[missing_entries]
         
@@ -154,6 +155,42 @@ class Tree_Object:
             bm.verts.new(v)
         bm.verts.index_update()
         bm.verts.ensure_lookup_table()
-        
+        # Connect vetrices appropriately
+        for i in range(n_nodes):
+            indices = np.arange(8) + i*8
+            curr_verts = [bm.verts[j] for j in indices]
+            for j in range(4):
+                bm.edges.new((curr_verts[j], curr_verts[j+4]))
+            for j in range(2):
+                for k in range(2):
+                    offset = k+j*4
+                    bm.edges.new((curr_verts[2+offset], curr_verts[0+j*4]))
+                    bm.edges.new((curr_verts[2+offset], curr_verts[1+j*4]))
+            bm.edges.index_update()
+            bm.edges.ensure_lookup_table()
+                                
         bm.to_mesh(self.bl_object.data)
         bm.free()
+    
+    # Generates the objects final mesh using metaballs
+    def generate_mesh_meta(self, context):
+        td = self.tree_data
+        min_rad = td.sk_min_radius
+        mball = bpy.data.metaballs.new("TempMBall")
+        mball_obj = bpy.data.objects.new("TempMBallObj", mball)
+        context.view_layer.active_layer_collection.collection.objects.link(mball_obj)
+        
+        ele = mball.elements.new()
+        ele.co = (0.0,0.0,0.0)
+        ele.use_negative = False
+        ele.radius = td.sk_base_radius / td.sk_min_radius
+        
+        mball_mesh = mball_obj.to_mesh()
+        
+        bm = bmesh.new()
+        bm.from_mesh(mball_mesh)
+        bm.to_mesh(self.bl_object.data)
+        bm.free()
+        
+        bpy.data.objects.remove(mball_obj)
+        bpy.data.metaballs.remove(mball)
