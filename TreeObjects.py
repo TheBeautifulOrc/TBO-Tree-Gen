@@ -173,24 +173,151 @@ class Tree_Object:
         bm.free()
     
     # Generates the objects final mesh using metaballs
-    def generate_mesh_meta(self, context):
+    def generate_mesh_metaballs(self):
         td = self.tree_data
+        base_rad = td.sk_base_radius
         min_rad = td.sk_min_radius
+        overlap = td.sk_overlap_factor
+        
+        # Check if min_rad is too small for default resolution
+        need_to_scale = min_rad < 1 # Indicates whether the model needs to be upscaled to work with metaballs properly
+        
+        # Create metaball object
         mball = bpy.data.metaballs.new("TempMBall")
         mball_obj = bpy.data.objects.new("TempMBallObj", mball)
-        context.view_layer.active_layer_collection.collection.objects.link(mball_obj)
+        mball.resolution = .25
+        bpy.context.view_layer.active_layer_collection.collection.objects.link(mball_obj)
         
-        ele = mball.elements.new()
-        ele.co = (0.0,0.0,0.0)
-        ele.use_negative = False
-        ele.radius = td.sk_base_radius / td.sk_min_radius
+        # Pad the space in between nodes with more metaballs
+        for p in self.nodes:
+            # Radius of the parent
+            p_rad = p.weight_factor * base_rad
+            p_rad = p_rad if p_rad > min_rad else min_rad
+            # Add initial metaball 
+            ele = mball.elements.new()
+            ele.co = p.location
+            ele.use_negative = False
+            ele.radius = p_rad
+            # List of child nodes
+            cs = [self.nodes[c] for c in p.child_indices]
+            for c in cs:    # For each child 
+                # Define the line between parent and said child on which the metaballs will be spawned 
+                line = (c.location - p.location)
+                direction = np.array(line.normalized()) # Direction of the line
+                l = line.length # Length of the line
+                # Radius of the child
+                c_rad = c.weight_factor * base_rad
+                c_rad = c_rad if c_rad > min_rad else min_rad
+                # Move iteratively along the line and generate new metaballs
+                metaball_centers = []
+                metaball_radii = []
+                curr_center = p_rad / overlap
+                exceeded = False # Have we exceeded our target lenght?
+                while(not exceeded):
+                    if curr_center > l:
+                        exceeded = True
+                    else:
+                        metaball_centers.append(curr_center)
+                        curr_rad = p_rad - (p_rad - c_rad) * (curr_center / l)
+                        metaball_radii.append(curr_rad)
+                        curr_center += curr_rad / overlap
+                # Convert lists to numpy arrays for improved performance
+                metaball_radii = np.array(metaball_radii)
+                metaball_centers = np.array(metaball_centers)
+                metaball_centers = np.einsum('i,j->ij', metaball_centers, direction)    # Turn scalars into vectors
+                offset = np.tile(np.array(p.location), (metaball_centers.shape[0])).reshape(-1,3)
+                metaball_centers += offset  # Move metaballs to the right "global" position
+                if need_to_scale:
+                    metaball_centers /= min_rad
+                    metaball_radii /= min_rad
+                #Create metaballs
+                for center, rad in zip(metaball_centers, metaball_radii):
+                    ele = mball.elements.new()
+                    ele.co = center
+                    ele.use_negative = False
+                    ele.radius = rad
+                    
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_mball_obj = mball_obj.evaluated_get(depsgraph)
         
-        mball_mesh = mball_obj.to_mesh()
-        
+        # Store copy of the mesh in a bmesh
         bm = bmesh.new()
-        bm.from_mesh(mball_mesh)
+        bm.from_mesh(eval_mball_obj.to_mesh())
+        
+        if need_to_scale:
+            bmesh.ops.scale(bm, vec=(min_rad, min_rad, min_rad), space=self.bl_object.matrix_world, verts=bm.verts)
+        
+        # Delete metaball object
+        bpy.data.objects.remove(mball_obj)
+        bpy.data.metaballs.remove(mball)
+        
         bm.to_mesh(self.bl_object.data)
         bm.free()
         
+    # Generates the objects final mesh using metaball-capsules
+    # This implementation should be way faster than generate_mesh_metaballs
+    def generate_mesh_metacapsules(self):
+        td = self.tree_data
+        base_rad = td.sk_base_radius
+        min_rad = td.sk_min_radius
+        overlap = td.sk_overlap_factor
+        
+        # Check if min_rad is too small for default resolution
+        need_to_scale = min_rad < 1 # Indicates whether the model needs to be upscaled to work with metaballs properly
+        
+        # Create metaball object
+        mball = bpy.data.metaballs.new("TempMBall")
+        mball_obj = bpy.data.objects.new("TempMBallObj", mball)
+        mball.resolution = .25
+        bpy.context.view_layer.active_layer_collection.collection.objects.link(mball_obj)
+        
+        # Pad the space in between nodes with more metaballs
+        for p in self.nodes:
+            # Radius of the parent
+            p_rad = p.weight_factor * base_rad
+            p_rad = p_rad if p_rad > min_rad else min_rad
+            # Add initial metaball 
+            ele = mball.elements.new()
+            ele.co = p.location if not need_to_scale else p.location / min_rad
+            ele.radius = p_rad if not need_to_scale else p_rad / min_rad
+            # List of child nodes
+            cs = [self.nodes[c] for c in p.child_indices]
+            for c in cs:    # For each child 
+                # Define the line between parent and said child on which the metaballs will be spawned 
+                line = (c.location - p.location)
+                l = line.length # Length of the line
+                # Radius, position and rotation of the capsule
+                rad = c.weight_factor * base_rad
+                rad = rad if rad > min_rad else min_rad
+                pos = p.location + line/2
+                if need_to_scale:
+                    rad /= min_rad
+                    pos /= min_rad
+                    l /= min_rad
+                rot = line.rotation_difference((1,0,0))
+                # Create meta-capsule
+                ele = mball.elements.new()
+                ele.type = 'CAPSULE'
+                ele.co = pos
+                ele.radius = rad
+                ele.rotation = rot
+                ele.size_x = l
+                
+        print(len(mball.elements))
+                    
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        eval_mball_obj = mball_obj.evaluated_get(depsgraph)
+        
+        # Store copy of the mesh in a bmesh
+        bm = bmesh.new()
+        bm.from_mesh(eval_mball_obj.to_mesh())
+        
+        if need_to_scale:
+            bmesh.ops.scale(bm, vec=(min_rad, min_rad, min_rad), space=self.bl_object.matrix_world, verts=bm.verts)
+        
+        # Delete metaball object
         bpy.data.objects.remove(mball_obj)
         bpy.data.metaballs.remove(mball)
+        
+        bm.to_mesh(self.bl_object.data)
+        bm.free()

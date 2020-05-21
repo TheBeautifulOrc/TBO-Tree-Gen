@@ -118,10 +118,9 @@ class TreeProperties(PropertyGroup):
         min=0.0,
         unit='LENGTH'
     )
-    sk_smoothing : FloatProperty(
-        name="Branch Smoothing",
-        description="Determines how much complex geometry around the branches should be smoothed",
-        default=1.0,
-        max=1.0,
-        min=0.0
+    sk_overlap_factor : FloatProperty(
+        name="Overlap factor",
+        description="Determines how much the metaballs used for skinning overlap. Higher values lead to better quality models at the cost of more processing time",
+        default=4,
+        min=1
     )

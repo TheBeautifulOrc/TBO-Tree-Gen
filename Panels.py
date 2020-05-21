@@ -133,5 +133,5 @@ class SKSubPanel(PanelTemplate, Panel):
         grid.prop(tree_data, "sk_base_radius", text="")
         grid.label(text="Minimum Radius")
         grid.prop(tree_data, "sk_min_radius", text="")
-        grid.label(text="Branch Smoothing")
-        grid.prop(tree_data, "sk_smoothing", text="")
+        grid.label(text="Overlap Factor")
+        grid.prop(tree_data, "sk_overlap_factor", text="")

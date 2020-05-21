@@ -107,7 +107,7 @@ class CreateTree(Operator):
             # If not in preview-mode create mesh with volume
             else:
                 t1 = time.perf_counter()
-                tree.generate_mesh_meta(context)
+                tree.generate_mesh_cubic()
                 t2 = time.perf_counter()
                 print(t2-t1)
             
