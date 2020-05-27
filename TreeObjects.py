@@ -26,6 +26,7 @@ class Tree_Object:
         self.tree_data = tree_data
         
     # Generates the objects skeletal mesh using bmesh
+    # Non functional!
     def generate_skeltal_mesh(self):
         # Calculate vertices in local space 
         verts = [n.location for n in self.nodes]
@@ -47,7 +48,8 @@ class Tree_Object:
         bm.to_mesh(self.bl_object.data)
         bm.free()
     
-    # Generates the objects final mesh using bmesh 
+    # Generates the objects final mesh using cubes as starting point
+    # Non functional!
     def generate_mesh_cubic(self):
         n_nodes = len(self.nodes)
         # Get node locations
@@ -58,12 +60,9 @@ class Tree_Object:
         node_radii = np.maximum(np.multiply(node_weight_factors, self.tree_data.sk_base_radius), 
                                 self.tree_data.sk_min_radius)
         
-        # Calculate list of unit vectors and corresponding distances 
+        # Calculate  list of unit vectors and corresponding distances 
         # pointing from each node to it's connected neigbors
-        parents = [0] * n_nodes
-        for p, tn in enumerate(self.nodes):
-            for c in tn.child_indices:
-                parents[c] = p
+        parents = self.nodes.parent_indices()
         neighbor_locs = np.full((n_nodes, 6, 3), np.nan)
         for i, tn in enumerate(self.nodes):
             if i != 0:
@@ -168,11 +167,13 @@ class Tree_Object:
                     bm.edges.new((curr_verts[2+offset], curr_verts[1+j*4]))
             bm.edges.index_update()
             bm.edges.ensure_lookup_table()
+        bmesh.ops.holes_fill(bm, edges=bm.edges, sides=6)
                                 
         bm.to_mesh(self.bl_object.data)
         bm.free()
     
     # Generates the objects final mesh using metaballs
+    # Too slow!
     def generate_mesh_metaballs(self):
         td = self.tree_data
         base_rad = td.sk_base_radius
@@ -256,6 +257,7 @@ class Tree_Object:
         
     # Generates the objects final mesh using metaball-capsules
     # This implementation should be way faster than generate_mesh_metaballs
+    # Non functional!
     def generate_mesh_metacapsules(self):
         td = self.tree_data
         base_rad = td.sk_base_radius
@@ -321,3 +323,137 @@ class Tree_Object:
         
         bm.to_mesh(self.bl_object.data)
         bm.free()
+    
+    # Generates tree-mesh branchwise
+    # Non functional!
+    def generate_mesh_separate_pieces(self):
+        nodes = self.nodes
+        
+        already_seen = [False for n in nodes]    # Indicates whether a node has been seen by the following routine
+        
+        branching_points = [nodes[0]]
+        branching_points.extend([n for n in nodes if len(n.child_indices) > 1])
+        
+        branches = []
+        
+        for p in branching_points:
+            for c in p.child_indices:
+                if not already_seen[c]:
+                    already_seen[c] = True
+                    child = nodes[c]
+                    curr_branch = [p]
+                    while len(child.child_indices) > 0:
+                        curr_branch.append(child)
+                        if len(child.child_indices) > 1:
+                            next_c = sorted(child.child_indices, key=lambda c: nodes[c].weight)[-1]
+                            already_seen[next_c] = True
+                        else: 
+                            next_c = child.child_indices[0]
+                        child = nodes[next_c]
+                    curr_branch.append(child)
+                    branches.append(curr_branch)
+        
+    # Generates mesh using the reduces
+    def generate_mesh_b_mesh(self):
+        nodes = self.nodes
+        tree_data = self.tree_data
+        n_nodes = len(nodes)
+        
+        # Joints are all nodes with more than 2 children
+        joints = [nodes[0]]
+        joints.extend([n for n in nodes if len(n.child_indices) > 1])
+        
+        # Limbs are the parts inbetween joints
+        limbs = []
+        attached_limbs = {j: [] for j in range(len(joints))}
+        counter = 0 
+        for i, p in enumerate(joints):
+            for c in p.child_indices:
+                child = nodes[c]
+                limb = [p]
+                while len(child.child_indices) == 1:
+                    limb.append(child)
+                    next_c = child.child_indices[0]
+                    child = nodes[next_c]
+                limb.append(child)
+                limbs.append(limb)
+                attached_limbs[i].append(counter)
+                counter += 1
+                
+        limb_ends_with_leaf = [len(limb[-1].child_indices) == 0 for limb in limbs]
+        
+        # Initalize numpy arrays for better performance
+        n_limbs = len(limbs)
+        max_limb_size = max([len(limb) for limb in limbs])
+        node_positions = np.full((n_limbs, max_limb_size, 3), np.nan)
+        node_radii = np.full((n_limbs, max_limb_size), np.nan)
+        
+        # Fill the arrays with appropriate data
+        for i, l in enumerate(limbs):
+            for j, n in enumerate(l):
+                node_positions[i,j] = [elem for elem in n.location]
+                rad = n.weight_factor * tree_data.sk_base_radius
+                node_radii[i,j] = rad if rad > tree_data.sk_min_radius else tree_data.sk_min_radius
+                
+        # Calculate positions of the bone centers 
+        limb_vecs = node_positions[:,1:] - node_positions[:,:-1]
+        bone_positions = limb_vecs / 2
+        # List with alternating bone and node positions
+        limb_positions = np.full((n_limbs, (2*max_limb_size) - 1, 3), np.nan)
+        limb_positions[:,::2] = node_positions
+        limb_positions[:,1::2] = bone_positions
+        # List with radii according to limb_positions
+        limb_radii = np.full((n_limbs, (2*max_limb_size) - 1), np.nan)
+        limb_radii[:,::2] = node_radii
+        bone_radii = (node_radii[:,:-1] + node_radii[:,1:]) / 2
+        limb_radii[:,1::2] = bone_radii
+        
+        # Calculate local coordinates
+        local_coordinates = np.full((n_limbs, 3, 3), np.nan)
+        global_coordinates = np.array([[0,0,1], [0,1,0], [1,0,0]])
+        first_limb_vector = node_positions[:,1] - node_positions[:,0]
+        # Local x is the connection between the parent joint and the first element of the limb
+        local_coordinates[:,0] = (first_limb_vector / la.norm(first_limb_vector, 2, -1, keepdims=True))
+        # Calculate local y and z
+        local_coordinates[:,1] = np.cross(np.tile(global_coordinates[2], (n_limbs, 1)), local_coordinates[:,0])
+        local_coordinates[:,2] = np.cross(local_coordinates[:,0], local_coordinates[:,1])
+        close_to_zero = np.array(
+            [np.isclose(la.norm(local_coordinates[:,1:], 2, -1, keepdims=True), 0)], 
+            dtype=np.bool).reshape(n_limbs, 2)
+        local_coordinates[:,1:][close_to_zero] = np.tile(global_coordinates[:-1], (n_limbs, 1)).reshape(n_limbs, 2, 3)[close_to_zero]
+        # Generate first square on each limb
+        first_verts_unscaled = np.swapaxes([-np.sign(i - 1.5) * local_coordinates[:,1] + -np.sign((i % 2) - 0.5) * local_coordinates[:,2] for i in range(4)], 0, 1)
+        raw_limb_verts = np.full((n_limbs, 2*max_limb_size-2, 4, 3), np.nan)
+        raw_limb_verts[:,0] = first_verts_unscaled
+        ##raw_limb_verts[:,0] = np.einsum('ijk,i->ijk', first_verts_unscaled, limb_radii[:,1])
+        # Calculate rotation axises and magnitudes 
+        upper = limb_vecs[:,:-1]    # All but last rows of limb_vecs
+        lower = limb_vecs[:,1:]     # All but first rows of limb vecs
+        limb_rotation_axes = np.cross(lower, upper)
+        limb_rotation_axes /= la.norm(limb_rotation_axes, 2, -1, True)
+        limb_rotations = np.arccos(np.einsum('ijk,ijk->ij', lower, upper) / (la.norm(upper, 2, -1, True) * la.norm(lower, 2, -1, True)).reshape(n_limbs, -1))
+        # Pre-calculation to save time later on
+        cos_limb_rotations = np.cos(limb_rotations)
+        sin_limb_rotations = np.sin(limb_rotations)
+        # Rotate verts for "sweeping"
+        for l_step in range(max_limb_size-2):
+            # Setup variables of this iteration
+            src_verts = raw_limb_verts[:,l_step]
+            rot_axes = limb_rotation_axes[:,l_step]
+            # Half steps for the next node and full steps for the next bone get calculated in one go
+            cos_rot = cos_limb_rotations[:,l_step]
+            cos_rot = np.array([cos_rot, cos_rot/2])
+            sin_rot = sin_limb_rotations[:,l_step]
+            sin_rot = np.array([sin_rot, sin_rot/2])
+            # Rotating vectors around axes
+            term1_1 = np.repeat(np.einsum('hi,ij->hij', (1-cos_rot), rot_axes), 4, axis=1).reshape(2, n_limbs, 4, 3)
+            term1_2 = (np.einsum('ij,ikj->ik', rot_axes, src_verts))
+            term1 = np.einsum('hijk,ij->hijk', term1_1, term1_2)
+            term2 = np.einsum('hi,ijk->hijk', cos_rot, src_verts)
+            term3 = np.einsum('hi,ijk->hijk', sin_rot, np.cross(np.repeat(rot_axes, 4, axis=0).reshape(n_limbs, 4, 3), src_verts))
+            rotated_verts = term1 + term2 + term3
+            # Write data back into the variable
+            raw_limb_verts[:,2*l_step+1] = rotated_verts[0]
+            raw_limb_verts[:,2*l_step+2] = rotated_verts[1]
+        # Multiply rotated verts with radii 
+        

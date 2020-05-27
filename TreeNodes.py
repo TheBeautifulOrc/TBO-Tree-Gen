@@ -45,10 +45,11 @@ class Tree_Node_Container(list):
         for i, node in enumerate(self[1:]): # Foreach node except the root node (since it always remains unchanged) 
             i += 1  # Due to the nature of enumerate i is not matching the elements and must be adjusted
             parent = self[parent_indices[i]]
-            #clearance = (node.location - parent.location).length
-            #if clearance < (parent.weight_factor * tree_data.sk_base_radius):
-                #mark_pending_kill(node, parent)
-            if len(node.child_indices) == 1:    # Only nodes with exactly one child are candidates for reduction
+            clearance = (node.location - parent.location).length
+            if clearance < (parent.weight_factor * tree_data.sk_base_radius) and len(node.child_indices) > 1:
+                mark_pending_kill(node, parent)
+            # Only nodes with exactly one child are candidates for angle absed reduction
+            if len(node.child_indices) == 1:
                 child = self[node.child_indices[0]]
                 vec1 = Vector(node.location - parent.location)  # Vector between node's parent and itself
                 vec2 = Vector(child.location - parent.location) # Vector between node's parent and it's child
