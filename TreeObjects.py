@@ -397,7 +397,7 @@ class Tree_Object:
                 
         # Calculate positions of the bone centers 
         limb_vecs = node_positions[:,1:] - node_positions[:,:-1]
-        bone_positions = limb_vecs / 2
+        bone_positions = limb_vecs / 2 + node_positions[:,:-1]
         # List with alternating bone and node positions
         limb_positions = np.full((n_limbs, (2*max_limb_size) - 1, 3), np.nan)
         limb_positions[:,::2] = node_positions
@@ -431,7 +431,7 @@ class Tree_Object:
         lower = limb_vecs[:,1:]     # All but first rows of limb vecs
         limb_rotation_axes = np.cross(lower, upper)
         limb_rotation_axes /= la.norm(limb_rotation_axes, 2, -1, True)
-        limb_rotations = np.arccos(np.einsum('ijk,ijk->ij', lower, upper) / (la.norm(upper, 2, -1, True) * la.norm(lower, 2, -1, True)).reshape(n_limbs, -1))
+        limb_rotations = -np.arccos(np.einsum('ijk,ijk->ij', lower, upper) / (la.norm(upper, 2, -1, True) * la.norm(lower, 2, -1, True)).reshape(n_limbs, -1))
         # Pre-calculation to save time later on
         cos_limb_rotations = np.cos(limb_rotations)
         sin_limb_rotations = np.sin(limb_rotations)
@@ -456,4 +456,23 @@ class Tree_Object:
             raw_limb_verts[:,2*l_step+1] = rotated_verts[0]
             raw_limb_verts[:,2*l_step+2] = rotated_verts[1]
         # Multiply rotated verts with radii 
+        limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii[:,1:], raw_limb_verts)
+        limb_verts += np.repeat(limb_positions[:,1:], 4, axis=1).reshape(n_limbs, -1, 4, 3)
+        printable_limb_verts = limb_verts[~np.isnan(limb_verts)].reshape(-1,3)
         
+        bm = bmesh.new()
+        for v in printable_limb_verts:
+            bm.verts.new(v)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        for i, v in enumerate(printable_limb_verts):
+            if i % 4 == 0:
+                verts = bm.verts[i:i+4]
+                bm.edges.new((verts[0], verts[1]))
+                bm.edges.new((verts[1], verts[3]))
+                bm.edges.new((verts[3], verts[2]))
+                bm.edges.new((verts[2], verts[0]))
+        bm.edges.index_update()
+        bm.edges.ensure_lookup_table()
+        bm.to_mesh(self.bl_object.data)
+        bm.free()
