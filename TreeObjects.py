@@ -384,9 +384,9 @@ class Tree_Object:
         
         # Initalize numpy arrays for better performance
         n_limbs = len(limbs)
-        max_limb_size = max([len(limb) for limb in limbs])
-        node_positions = np.full((n_limbs, max_limb_size, 3), np.nan)
-        node_radii = np.full((n_limbs, max_limb_size), np.nan)
+        max_nodes_per_limb = max([len(limb) for limb in limbs])
+        node_positions = np.full((n_limbs, max_nodes_per_limb, 3), np.nan)
+        node_radii = np.full((n_limbs, max_nodes_per_limb), np.nan)
         
         # Fill the arrays with appropriate data
         for i, l in enumerate(limbs):
@@ -399,11 +399,11 @@ class Tree_Object:
         limb_vecs = node_positions[:,1:] - node_positions[:,:-1]
         bone_positions = limb_vecs / 2 + node_positions[:,:-1]
         # List with alternating bone and node positions
-        limb_positions = np.full((n_limbs, (2*max_limb_size) - 1, 3), np.nan)
+        limb_positions = np.full((n_limbs, (2*max_nodes_per_limb) - 1, 3), np.nan)
         limb_positions[:,::2] = node_positions
         limb_positions[:,1::2] = bone_positions
         # List with radii according to limb_positions
-        limb_radii = np.full((n_limbs, (2*max_limb_size) - 1), np.nan)
+        limb_radii = np.full((n_limbs, (2*max_nodes_per_limb) - 1), np.nan)
         limb_radii[:,::2] = node_radii
         bone_radii = (node_radii[:,:-1] + node_radii[:,1:]) / 2
         limb_radii[:,1::2] = bone_radii
@@ -417,15 +417,17 @@ class Tree_Object:
         # Calculate local y and z
         local_coordinates[:,1] = np.cross(np.tile(global_coordinates[2], (n_limbs, 1)), local_coordinates[:,0])
         local_coordinates[:,2] = np.cross(local_coordinates[:,0], local_coordinates[:,1])
+        local_coordinates[:,1:] /= la.norm(local_coordinates[:,1:], 2, -1, True)
         close_to_zero = np.array(
             [np.isclose(la.norm(local_coordinates[:,1:], 2, -1, keepdims=True), 0)], 
             dtype=np.bool).reshape(n_limbs, 2)
-        local_coordinates[:,1:][close_to_zero] = np.tile(global_coordinates[:-1], (n_limbs, 1)).reshape(n_limbs, 2, 3)[close_to_zero]
+        local_coordinates[:,1:][close_to_zero] = \
+            np.tile(global_coordinates[:-1], (n_limbs, 1)).reshape(n_limbs, 2, 3)[close_to_zero]
         # Generate first square on each limb
         first_verts_unscaled = np.swapaxes([-np.sign(i - 1.5) * local_coordinates[:,1] + -np.sign((i % 2) - 0.5) * local_coordinates[:,2] for i in range(4)], 0, 1)
-        raw_limb_verts = np.full((n_limbs, 2*max_limb_size-2, 4, 3), np.nan)
+        #print(la.norm(first_verts_unscaled, 2, -1, True))
+        raw_limb_verts = np.full((n_limbs, 2*max_nodes_per_limb-2, 4, 3), np.nan)
         raw_limb_verts[:,0] = first_verts_unscaled
-        ##raw_limb_verts[:,0] = np.einsum('ijk,i->ijk', first_verts_unscaled, limb_radii[:,1])
         # Calculate rotation axises and magnitudes 
         upper = limb_vecs[:,:-1]    # All but last rows of limb_vecs
         lower = limb_vecs[:,1:]     # All but first rows of limb vecs
@@ -433,38 +435,47 @@ class Tree_Object:
         limb_rotation_axes /= la.norm(limb_rotation_axes, 2, -1, True)
         limb_rotations = -np.arccos(np.einsum('ijk,ijk->ij', lower, upper) / (la.norm(upper, 2, -1, True) * la.norm(lower, 2, -1, True)).reshape(n_limbs, -1))
         # Pre-calculation to save time later on
-        cos_limb_rotations = np.cos(limb_rotations)
-        sin_limb_rotations = np.sin(limb_rotations)
+        cos_limb_rotations = np.cos(np.array([limb_rotations, limb_rotations/2]))
+        sin_limb_rotations = np.sin(np.array([limb_rotations, limb_rotations/2]))
         # Rotate verts for "sweeping"
-        for l_step in range(max_limb_size-2):
+        for l_step in range(max_nodes_per_limb-2):
             # Setup variables of this iteration
-            src_verts = raw_limb_verts[:,l_step]
+            src_verts = raw_limb_verts[:,l_step*2]
             rot_axes = limb_rotation_axes[:,l_step]
             # Half steps for the next node and full steps for the next bone get calculated in one go
-            cos_rot = cos_limb_rotations[:,l_step]
-            cos_rot = np.array([cos_rot, cos_rot/2])
-            sin_rot = sin_limb_rotations[:,l_step]
-            sin_rot = np.array([sin_rot, sin_rot/2])
+            cos_rot = cos_limb_rotations[:,:,l_step]
+            sin_rot = sin_limb_rotations[:,:,l_step]
             # Rotating vectors around axes
-            term1_1 = np.repeat(np.einsum('hi,ij->hij', (1-cos_rot), rot_axes), 4, axis=1).reshape(2, n_limbs, 4, 3)
-            term1_2 = (np.einsum('ij,ikj->ik', rot_axes, src_verts))
-            term1 = np.einsum('hijk,ij->hijk', term1_1, term1_2)
-            term2 = np.einsum('hi,ijk->hijk', cos_rot, src_verts)
-            term3 = np.einsum('hi,ijk->hijk', sin_rot, np.cross(np.repeat(rot_axes, 4, axis=0).reshape(n_limbs, 4, 3), src_verts))
+            # Einstein indices: 
+            # h -> half or full step (projection to next node or bone)
+            # l -> limb
+            # v -> vertex
+            # m -> member (three members make up a vert)
+            term1_1 = np.einsum('hl,lm->hlm', (1-cos_rot), rot_axes)
+            term1_2 = (np.einsum('lm,lvm->lv', rot_axes, src_verts))
+            term1 = np.einsum('hlm,lv->hlvm', term1_1, term1_2)
+            term2 = np.einsum('hl,lvm->hlvm', cos_rot, src_verts)
+            term3_1 = np.cross(np.repeat(rot_axes, 4, axis=0).reshape(n_limbs, 4, 3), src_verts)
+            term3 = np.einsum('hl,lvm->hlvm', sin_rot, term3_1)
             rotated_verts = term1 + term2 + term3
             # Write data back into the variable
-            raw_limb_verts[:,2*l_step+1] = rotated_verts[0]
-            raw_limb_verts[:,2*l_step+2] = rotated_verts[1]
+            raw_limb_verts[:,2*l_step+1] = rotated_verts[1]
+            raw_limb_verts[:,2*l_step+2] = rotated_verts[0]
+        
         # Multiply rotated verts with radii 
         limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii[:,1:], raw_limb_verts)
         limb_verts += np.repeat(limb_positions[:,1:], 4, axis=1).reshape(n_limbs, -1, 4, 3)
+        #print(limb_verts)
         printable_limb_verts = limb_verts[~np.isnan(limb_verts)].reshape(-1,3)
         
+        # Write results into the mesh
         bm = bmesh.new()
+        # Generate verts
         for v in printable_limb_verts:
             bm.verts.new(v)
         bm.verts.index_update()
         bm.verts.ensure_lookup_table()
+        # Generate edges 
         for i, v in enumerate(printable_limb_verts):
             if i % 4 == 0:
                 verts = bm.verts[i:i+4]
