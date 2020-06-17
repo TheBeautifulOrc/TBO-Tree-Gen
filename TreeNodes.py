@@ -32,31 +32,35 @@ class Tree_Node_Container(list):
     def reduce_tree_nodes(self, tree_data):
         crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
         parent_indices = self.parent_indices()
-        correspondence = {}     # Correspondences between indices in before and after reduction
-        def mark_pending_kill(node, parent):
+        
+        def mark_pending_kill(node_index, node, parent):
             # Replace parents connection to node with connection children
-            parent.child_indices = [c for c in parent.child_indices if c != i]  # Remove node's entry
+            parent.child_indices = [c for c in parent.child_indices if c != node_index]  # Remove node's entry
             parent.child_indices.extend([c for c in node.child_indices])    # Append child entries
             # Replace children's reference to node with reference to parent
             for c in node.child_indices:
-                parent_indices[c] = parent_indices[i]
-            self[i] = None    # Mark node as pending removal
+                parent_indices[c] = parent_indices[node_index]
+            self[node_index] = None    # Mark node as pending removal
+        
         # Reduction algorithm
-        for i, node in enumerate(self[1:]): # Foreach node except the root node (since it always remains unchanged) 
-            i += 1  # Due to the nature of enumerate i is not matching the elements and must be adjusted
-            parent = self[parent_indices[i]]
-            clearance = (node.location - parent.location).length
-            if clearance < (parent.weight_factor * tree_data.sk_base_radius) and len(node.child_indices) > 1:
-                mark_pending_kill(node, parent)
-            # Only nodes with exactly one child are candidates for angle absed reduction
+        root_of_two = math.sqrt(2)
+        for i, node in enumerate(self[1:], 1): # Foreach node except the root node (since it always remains unchanged)
+            parent_index = parent_indices[i]
+            parent = self[parent_index]
+            #clearance = (node.location - parent.location).length
+            #if clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius * root_of_two):
+            #    mark_pending_kill(i, node, parent)
+            # Only nodes with exactly one child are candidates for angle based reduction
             if len(node.child_indices) == 1:
                 child = self[node.child_indices[0]]
                 vec1 = Vector(node.location - parent.location)  # Vector between node's parent and itself
                 vec2 = Vector(child.location - parent.location) # Vector between node's parent and it's child
                 angle = vec1.angle(vec2, 0) # Calculate the angle between those two vectors
                 if angle < crit_angle:  # If the angle is smaller that specified, the node is not essential
-                    mark_pending_kill(node, parent)
-        # Update correspondences 
+                    mark_pending_kill(i, node, parent)
+        
+        # Update correspondences
+        correspondence = {}     # Correspondences between indices before and after reduction 
         counter_new = 0
         for counter_old, node in enumerate(self):
             if node is not None:
@@ -65,6 +69,7 @@ class Tree_Node_Container(list):
         self[:] = [node for node in self if node is not None]   # Remove None objects from tree_nodes
         for node in self:
             node.child_indices = [correspondence[index] for index in node.child_indices]
+            node.child_indices = list(dict.fromkeys(node.child_indices))
             
     # Evaluates the nodes weight based on the number of recursive children it has
     def calculate_weights(self):

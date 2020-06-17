@@ -6,7 +6,6 @@ from bpy.types import PropertyGroup
 class TreeProperties(PropertyGroup):
     def shape_object_poll(self, obj):
         return ((obj.type == 'MESH') 
-            and (obj not in bpy.context.selected_objects)
             and (obj.name in bpy.data.objects)
         )
         

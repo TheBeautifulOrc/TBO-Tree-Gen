@@ -2,7 +2,7 @@
 
 bl_info = {
     "name" : "TBO_TreeGenerator",
-    "author" : "TheBeautifulOrc",
+    "author" : "Luai \"TheBeautifulOrc\" Malek",
     "description" : "",
     "blender" : (2, 80, 0),
     "version" : (0, 8, 2),
