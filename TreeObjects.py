@@ -369,6 +369,8 @@ class Tree_Object:
         # Joints are all nodes with more than 2 children
         joints = [0]
         joints.extend([n for n, _ in enumerate(nodes) if len(nodes[n].child_indices) > 1])
+        # Positions of all joints 
+        joint_positions = np.array([nodes[j].location for j in joints])
         # Limbs are the parts inbetween joints
         limbs = []
         counter = 0 
@@ -492,12 +494,12 @@ class Tree_Object:
                 l[last_valid] = np.nan  # Overwrite with np.nan
                 limb_verts[inv_ends[i][0]] = l  # Write back into limb_verts
             
-        # Remove squares that produce artifacts during 
-        for i in joints:
+        # Remove squares that produce artifacts during
+        for i, joint in enumerate(joints):
             if i != 0:
                 # Limbs that are meeting at this particular joint
-                relevant_limb_indices = inv_ends[i]
-                relevant_limb_indices.extend(inv_starts[i])
+                relevant_limb_indices = inv_ends[joint]
+                relevant_limb_indices.extend(inv_starts[joint])
                 
                 # Sort limbs from biggest to smallest radius
                 relevant_limb_indices.sort(key=lambda index: limb_radii[index,1])
@@ -506,7 +508,7 @@ class Tree_Object:
                 
                 # The vertices of the squares currently checked by the algorithm
                 # Have changes been made to the limbs?
-                change_flag = np.full(len(relevant_limbs), True, dtype=np.bool)  # Default true to enter loop
+                change_flag = True  # Default true to enter loop
                 while(np.any(change_flag)):
                     change_flag = False # If nothing happens during this iteration leave loop
                     for l, limb in enumerate(relevant_limbs):
@@ -514,37 +516,50 @@ class Tree_Object:
                         # when creating a convex hull with it
                         convex_clear = False    # Assume as False
                         while(not convex_clear):
-                            convex_clear = True
-                            # Find the current square that'll be part of the convex hull
-                            square = limb[np.where(~np.isnan(limb))[0][0]] \
-                                if l < len(relevant_limbs)-1 else limb[np.where(~np.isnan(limb))[0][-1]]
-                            # Normal of the tested square 
-                            ref_normal = np.cross(square[1] - square[0], square[2] - square[0])
-                            # Vector to center of the joint
-                            to_joint = node_positions.reshape(-1,3)[i] - square[0]
-                            # Reference scalar between the normal vector and the connection to the joint
-                            # (only the sign is relevant)
-                            ref_sign = np.sign(np.dot(ref_normal, to_joint))
-                            # Compare vector the connections to all other vertices. 
-                            # Their dot-products need to be grater than 0 in order for the convex hull
-                            # to be created properly.
-                            other_limbs = np.vstack((relevant_limbs[:l], relevant_limbs[l+1:]))
-                            other_squares = np.array([other[np.where(~np.isnan(other))[0][0]]
-                                                      if o < len(other_limbs) - 1 else other[np.where(~np.isnan(other))[0][-1]]
-                                                      for o, other in enumerate(other_limbs)])
-                            other_verts = other_squares.reshape(-1,3)
-                            # Vectors to the other vertices that shall form the convex hull
-                            to_others = other_verts - square[0]
-                            # Signs of dot products between the normal and to_others  
-                            other_signs = np.sign(np.einsum('ij,j->i', to_others, ref_normal))
-                            # If any of these signs is different from ref_sign 
-                            # the square is invalid and must be deleted.
-                            
+                            # All limb elements that are not nan
+                            limb_indexing = np.where(~np.isnan(limb[:,0,0]))[0]
+                            # Only execute reduction if limb has elements left to reduce 
+                            if limb_indexing.shape[0] > 0:
+                                # Find the current square that will be part of the convex hull
+                                square_index = (limb_indexing[0] 
+                                                if l < len(relevant_limbs)-1 
+                                                else limb_indexing[-1])
+                                square = limb[square_index]
+                                # Normal of the tested square 
+                                ref_normal = np.cross(square[1] - square[0], square[2] - square[0])
+                                # Vector to center of the joint
+                                to_joint = joint_positions[i] - square[0]
+                                # Reference scalar between the normal vector and the connection to the joint
+                                # (only the sign is relevant)
+                                ref_sign = np.sign(np.dot(ref_normal, to_joint))
+                                # Compare vector the connections to all other vertices. 
+                                # Their dot-products need to be grater than 0 in order for the convex hull
+                                # to be created properly.
+                                other_limbs = np.vstack((relevant_limbs[:l], relevant_limbs[l+1:]))
+                                # Create lists of all non nan elements within the other limbs
+                                other_limb_indexing = [np.where(~np.isnan(other))[0] for other in other_limbs]
+                                other_squares = np.array([other_limbs[i, index[0]] 
+                                                          if i < other_limbs.shape[0]
+                                                          else other_limbs[i, index[-1]]
+                                                          for i, index in enumerate(other_limb_indexing)
+                                                          if index.shape[0] > 0])
+                                other_verts = other_squares.reshape(-1,3)
+                                # Vectors to the other vertices that shall form the convex hull
+                                to_others = other_verts - square[0]
+                                # Signs of dot products between the normal and to_others  
+                                other_signs = np.sign(np.einsum('ij,j->i', to_others, ref_normal))
+                                # If any of these signs is different from ref_sign 
+                                # the square is invalid and must be deleted.
+                                convex_clear = np.all(np.equal(other_signs, ref_sign))
+                                if(not convex_clear):
+                                    relevant_limbs[l, square_index] = np.nan
+                                    limb = relevant_limbs[l]
+                                    change_flag = True
+                            else: 
+                                convex_clear = True                            
                 # Write calculated verts back into limb_verts
-                #for r, index in enumerate(relevant_limb_indices):
-                #    limb_verts[index] = relevant_limbs[r]
-        
-        
+                for r, index in enumerate(relevant_limb_indices):
+                    limb_verts[index] = relevant_limbs[r]
         
         # Transfer calculated data into the object
         # Remove NaN-values to "filter" invalid/empty vertices out

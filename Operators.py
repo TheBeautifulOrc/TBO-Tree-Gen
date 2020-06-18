@@ -99,7 +99,7 @@ class CreateTree(Operator):
             ### Calculate weights
             tree.nodes.calculate_weights()
             ### Geometry reduction
-            if tree_data.pr_enable_reduction and not tree_data.pr_enable_skinning:
+            if tree_data.pr_enable_reduction:
                 tree.nodes.reduce_tree_nodes(tree_data)
             ### Generate mesh
             if not tree_data.pr_enable_skinning:

@@ -43,21 +43,23 @@ class Tree_Node_Container(list):
             self[node_index] = None    # Mark node as pending removal
         
         # Reduction algorithm
-        root_of_two = math.sqrt(2)
         for i, node in enumerate(self[1:], 1): # Foreach node except the root node (since it always remains unchanged)
             parent_index = parent_indices[i]
             parent = self[parent_index]
-            #clearance = (node.location - parent.location).length
-            #if clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius * root_of_two):
-            #    mark_pending_kill(i, node, parent)
-            # Only nodes with exactly one child are candidates for angle based reduction
-            if len(node.child_indices) == 1:
-                child = self[node.child_indices[0]]
-                vec1 = Vector(node.location - parent.location)  # Vector between node's parent and itself
-                vec2 = Vector(child.location - parent.location) # Vector between node's parent and it's child
-                angle = vec1.angle(vec2, 0) # Calculate the angle between those two vectors
-                if angle < crit_angle:  # If the angle is smaller that specified, the node is not essential
-                    mark_pending_kill(i, node, parent)
+            
+            clearance = (node.location - parent.location).length
+            if (len(node.child_indices) > 1 and
+                clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius)):
+                mark_pending_kill(i, node, parent)
+            if not tree_data.pr_enable_skinning:
+                # Only nodes with exactly one child are candidates for angle based reduction
+                if len(node.child_indices) == 1:
+                    child = self[node.child_indices[0]]
+                    vec1 = Vector(node.location - parent.location)  # Vector between node's parent and itself
+                    vec2 = Vector(child.location - parent.location) # Vector between node's parent and it's child
+                    angle = vec1.angle(vec2, 0) # Calculate the angle between those two vectors
+                    if angle < crit_angle:  # If the angle is smaller that specified, the node is not essential
+                        mark_pending_kill(i, node, parent)
         
         # Update correspondences
         correspondence = {}     # Correspondences between indices before and after reduction 
