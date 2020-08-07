@@ -70,8 +70,7 @@ class TreeProperties(PropertyGroup):
         name="Node Distance",
         description="Distance in between adjacent nodes",
         default=0.25,
-        min=0.01, 
-        max=1.0,
+        min=0.01,
         unit='LENGTH'
     )
     sc_d_i : IntProperty(

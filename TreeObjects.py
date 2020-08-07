@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import List
 from collections import defaultdict
 from mathutils import Vector
+import itertools
 
 from .TreeNodes import Tree_Node, Tree_Node_Container
 from .Utility import transform_points
@@ -369,17 +370,11 @@ class Tree_Object:
         # Joints are all nodes with more than 2 children
         joints = [0]
         joints.extend([n for n, _ in enumerate(nodes) if len(nodes[n].child_indices) > 1])
-        # Positions of all joints 
-        joint_positions = np.array([nodes[j].location for j in joints])
-        # Limbs are the parts inbetween joints
+        # Limbs are collections of nodes inbetween joints
         limbs = []
-        counter = 0 
-        limb_start_nodes = {}
-        limb_end_nodes = {}
         for i in joints:
             p = nodes[i]
             for c in p.child_indices:
-                limb_start_nodes.update({counter: i})
                 child = nodes[c]
                 limb = [p]
                 while len(child.child_indices) == 1:
@@ -388,8 +383,6 @@ class Tree_Object:
                     child = nodes[next_c]
                 limb.append(child)
                 limbs.append(limb)
-                limb_end_nodes.update({counter: next_c})
-                counter += 1
         
         # Prepare data as numpy structures for further calculations
         # Initalize numpy arrays
@@ -401,8 +394,9 @@ class Tree_Object:
         for i, l in enumerate(limbs):
             for j, n in enumerate(l):
                 node_positions[i,j] = [elem for elem in n.location]
-                rad = n.weight_factor * tree_data.sk_base_radius
-                node_radii[i,j] = rad if rad > tree_data.sk_min_radius else tree_data.sk_min_radius
+                node_radii[i,j] = n.weight_factor
+        node_radii *= tree_data.sk_base_radius
+        node_radii[np.less(node_radii, tree_data.sk_min_radius)] = tree_data.sk_min_radius
         # Calculate positions of the bone centers 
         limb_vecs = node_positions[:,1:] - node_positions[:,:-1]
         bone_positions = limb_vecs / 2 + node_positions[:,:-1]
@@ -436,130 +430,102 @@ class Tree_Object:
         # Initialize sweeping
         # Generate first square on each limb
         first_verts_unscaled = np.swapaxes([-np.sign(i - 1.5) * local_coordinates[:,1] + -np.sign((i % 2) - 0.5) * local_coordinates[:,2] for i in range(4)], 0, 1)
-        raw_limb_verts = np.full((n_limbs, 2*max_nodes_per_limb-2, 4, 3), np.nan)
+        raw_limb_verts = np.full((n_limbs, 2*max_nodes_per_limb-1, 4, 3), np.nan)
         raw_limb_verts[:,0] = first_verts_unscaled
-        # Calculate rotation-axes and rotation-magnitudes 
         upper = limb_vecs[:,:-1]    # All but last rows of limb_vecs
         lower = limb_vecs[:,1:]     # All but first rows of limb vecs
-        limb_rotation_axes = np.cross(lower, upper)
+        # Calculate rotation-axes  
+        limb_rotation_axes = np.full((n_limbs, max_nodes_per_limb, 3), np.nan, dtype=np.float64)
+        limb_rotation_axes[:,1:-1] = np.cross(lower, upper)
         limb_rotation_axes /= la.norm(limb_rotation_axes, 2, -1, True)
         limb_rotation_axes[np.isnan(limb_rotation_axes)] = 0
-        limb_rotation_magnitudes = -np.arccos(np.einsum('ijk,ijk->ij', lower, upper) / (la.norm(upper, 2, -1, True) * la.norm(lower, 2, -1, True)).reshape(n_limbs, -1))
+        limb_rotation_axes = np.repeat(limb_rotation_axes, 2, -2)
+        limb_rotation_axes = limb_rotation_axes[:,1:,:]
+        # Calculate rotation-magnitudes
+        limb_rotation_magnitudes = np.full((n_limbs, max_nodes_per_limb), np.nan, dtype=np.float64)
+        limb_rotation_magnitudes[:,1:-1] = -np.arccos(np.einsum('ijk,ijk->ij', lower, upper)\
+             / (la.norm(upper, 2, -1, True) * la.norm(lower, 2, -1, True)).reshape(n_limbs, -1))
         limb_rotation_magnitudes[np.isnan(limb_rotation_magnitudes)] = 0
+        limb_rotation_magnitudes /= 2
+        limb_rotation_magnitudes = np.repeat(limb_rotation_magnitudes, 2, -1)
+        limb_rotation_magnitudes = limb_rotation_magnitudes[:,1:]
         # Pre-calculate sines and cosines once to save time later on
-        sin_limb_rotations = np.sin(np.array([limb_rotation_magnitudes, limb_rotation_magnitudes/2]))
-        cos_limb_rotations = np.cos(np.array([limb_rotation_magnitudes, limb_rotation_magnitudes/2]))
+        sin_limb_rotations = np.sin(limb_rotation_magnitudes)
+        cos_limb_rotations = np.cos(limb_rotation_magnitudes)
         # Rotate verts for sweeping
-        for l_step in range(max_nodes_per_limb-2):
+        for l_step in range(max_nodes_per_limb*2 - 2):
             # Setup variables of this iteration
-            src_verts = raw_limb_verts[:,l_step*2]
+            src_verts = raw_limb_verts[:,l_step]
             rot_axes = limb_rotation_axes[:,l_step]
             # Half steps for the next node and full steps for the next bone get calculated in one go
-            cos_rot = cos_limb_rotations[:,:,l_step]
-            sin_rot = sin_limb_rotations[:,:,l_step]
+            cos_rot = cos_limb_rotations[:,l_step]
+            sin_rot = sin_limb_rotations[:,l_step]
             # Rotating vectors around axes
             # Einstein indices: 
-            # h -> half or full step (projection to next node or bone)
             # l -> limb
             # v -> vertex
             # m -> member (three members make up a vert)
-            term1_1 = np.einsum('hl,lm->hlm', (1-cos_rot), rot_axes)
+            term1_1 = np.einsum('l,lm->lm', (1-cos_rot), rot_axes)
             term1_2 = (np.einsum('lm,lvm->lv', rot_axes, src_verts))
-            term1 = np.einsum('hlm,lv->hlvm', term1_1, term1_2)
-            term2 = np.einsum('hl,lvm->hlvm', cos_rot, src_verts)
+            term1 = np.einsum('lm,lv->lvm', term1_1, term1_2)
+            term2 = np.einsum('l,lvm->lvm', cos_rot, src_verts)
             term3_1 = np.cross(np.repeat(rot_axes, 4, axis=0).reshape(n_limbs, 4, 3), src_verts)
-            term3 = np.einsum('hl,lvm->hlvm', sin_rot, term3_1)
+            term3 = np.einsum('l,lvm->lvm', sin_rot, term3_1)
             rotated_verts = term1 + term2 + term3
             # Write data back into the variable
-            raw_limb_verts[:,2*l_step+1] = rotated_verts[1]
-            raw_limb_verts[:,2*l_step+2] = rotated_verts[0]
+            raw_limb_verts[:,l_step+1] = rotated_verts
         # Scale rotated verts by multiplying them with their respecive radii 
-        limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii[:,1:], raw_limb_verts)
+        limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii, raw_limb_verts)
         # Move them to their designated positions to complete the sweeping-process
-        limb_verts += np.repeat(limb_positions[:,1:], 4, axis=1).reshape(n_limbs, -1, 4, 3)
+        limb_verts += np.repeat(limb_positions, 4, axis=1).reshape(n_limbs, -1, 4, 3)
         
-        # At this point the swept squares must be "cleaned up" to improve the quality of the final mesh
-        # Invert limb-joint dictionaries
-        inv_starts, inv_ends = defaultdict(list), defaultdict(list)
-        {inv_starts[v].append(k) for k, v in limb_start_nodes.items()}
-        {inv_ends[v].append(k) for k, v in limb_end_nodes.items()}
-        # The last square of limbs that end in a joint can always be discarded 
-        # as they are located directly at the intersection and thus invalid 
-        # by default.
-        for i in joints:
-            l = limb_verts[inv_ends[i]]
-            if len(l) > 0:
-                l = l[0]
-                last_valid = np.where(~np.isnan(l[:,0,0]))[0][-1]   # Find last non-nan value
-                l[last_valid] = np.nan  # Overwrite with np.nan
-                limb_verts[inv_ends[i][0]] = l  # Write back into limb_verts
-            
-        # Remove squares that produce artifacts during
-        for i, joint in enumerate(joints):
-            if i != 0:
-                # Limbs that are meeting at this particular joint
-                relevant_limb_indices = inv_ends[joint]
-                relevant_limb_indices.extend(inv_starts[joint])
-                
-                # Sort limbs from biggest to smallest radius
-                relevant_limb_indices.sort(key=lambda index: limb_radii[index,1])
-                
-                relevant_limbs = np.array(limb_verts[relevant_limb_indices], dtype=np.float64)
-                
-                # The vertices of the squares currently checked by the algorithm
-                # Have changes been made to the limbs?
-                change_flag = True  # Default true to enter loop
-                while(np.any(change_flag)):
-                    change_flag = False # If nothing happens during this iteration leave loop
-                    for l, limb in enumerate(relevant_limbs):
-                        # Indicates whether the limb is (currently) not producing any artefacts 
-                        # when creating a convex hull with it
-                        convex_clear = False    # Assume as False
-                        while(not convex_clear):
-                            # All limb elements that are not nan
-                            limb_indexing = np.where(~np.isnan(limb[:,0,0]))[0]
-                            # Only execute reduction if limb has elements left to reduce 
-                            if limb_indexing.shape[0] > 0:
-                                # Find the current square that will be part of the convex hull
-                                square_index = (limb_indexing[0] 
-                                                if l < len(relevant_limbs)-1 
-                                                else limb_indexing[-1])
-                                square = limb[square_index]
-                                # Normal of the tested square 
-                                ref_normal = np.cross(square[1] - square[0], square[2] - square[0])
-                                # Vector to center of the joint
-                                to_joint = joint_positions[i] - square[0]
-                                # Reference scalar between the normal vector and the connection to the joint
-                                # (only the sign is relevant)
-                                ref_sign = np.sign(np.dot(ref_normal, to_joint))
-                                # Compare vector the connections to all other vertices. 
-                                # Their dot-products need to be grater than 0 in order for the convex hull
-                                # to be created properly.
-                                other_limbs = np.vstack((relevant_limbs[:l], relevant_limbs[l+1:]))
-                                # Create lists of all non nan elements within the other limbs
-                                other_limb_indexing = [np.where(~np.isnan(other))[0] for other in other_limbs]
-                                other_squares = np.array([other_limbs[i, index[0]] 
-                                                          if i < other_limbs.shape[0]
-                                                          else other_limbs[i, index[-1]]
-                                                          for i, index in enumerate(other_limb_indexing)
-                                                          if index.shape[0] > 0])
-                                other_verts = other_squares.reshape(-1,3)
-                                # Vectors to the other vertices that shall form the convex hull
-                                to_others = other_verts - square[0]
-                                # Signs of dot products between the normal and to_others  
-                                other_signs = np.sign(np.einsum('ij,j->i', to_others, ref_normal))
-                                # If any of these signs is different from ref_sign 
-                                # the square is invalid and must be deleted.
-                                convex_clear = np.all(np.equal(other_signs, ref_sign))
-                                if(not convex_clear):
-                                    relevant_limbs[l, square_index] = np.nan
-                                    limb = relevant_limbs[l]
-                                    change_flag = True
-                            else: 
-                                convex_clear = True                            
-                # Write calculated verts back into limb_verts
-                for r, index in enumerate(relevant_limb_indices):
-                    limb_verts[index] = relevant_limbs[r]
+        # Clean-Up
+        # Helper function, that returns the first and last valid square in each branch
+        def get_first_and_last():
+            non_nan_indices = np.transpose(np.where(~np.isnan(limb_verts[:,:,0,0])))
+            splitter = np.flatnonzero(np.diff(non_nan_indices[:,0])) + 1
+            separated_indices = np.array_split(non_nan_indices, splitter)
+            first_indices = np.array([b[0] for b in separated_indices])
+            last_indices = np.array([b[-1] for b in separated_indices])
+            return first_indices, last_indices            
+        # Clean up first square on non-root branches
+        limb_verts[1:,0] = np.nan
+        # Clean up last square of all branches that have children (non-leaf branches)
+        # Find all non-leaf branches
+        not_a_leaf = np.array([len(limb[-1].child_indices) != 0 for limb in limbs])
+        _, last_inds = get_first_and_last()
+        last_inds = last_inds[not_a_leaf]   # Take only the non-leafes 
+        limb_verts[last_inds[:,0], last_inds[:,1]] = np.nan
+        # Clean up all squares that get create artifacts at joints
+        limb_first_node = {}    # Maps with the number of the limb as the key and the ID of 
+        limb_last_node = {}     # the limbs first/last node as value
+        # Fill the maps with data
+        for l, limb in enumerate(limbs):
+            limb_first_node[l] = id(limb[0])
+            limb_last_node[l] = id(limb[-1])
+        # Invert the maps
+        limb_first_node_inv, limb_last_node_inv = defaultdict(list), defaultdict(list)
+        {limb_first_node_inv[v].append(k) for k, v in limb_first_node.items()}
+        {limb_last_node_inv[v].append(k) for k, v in limb_last_node.items()}
+        # Create lists showing which limbs are part of which joint 
+        # (the joint "rests" on the end of the last entry)
+        limb_in_joint = [limb_first_node_inv[key] for key in limb_first_node_inv]
+        [limb_in_joint[k].extend(limb_last_node_inv[key]) for k, key in enumerate(limb_first_node_inv)]
+        [l.reverse() for l in limb_in_joint]
+        # Convert to numpy-array for easier handling 
+        # (in case of unhomogenous length, pad with np.nan)
+        limb_in_joint = np.array(list(itertools.zip_longest(*limb_in_joint, fillvalue=-1)), dtype=np.int).transpose()[1:]
+        # Use this data to check each joint for squares that are
+        # overlapping or overshadowing each other
+        joint_positions = np.array([nodes[n].location for n in joints])[1:]
+        max_branching = max([len(l) for l in limb_in_joint])
+        correction_needed = True    # Condition for continuing the while loop
+        while(correction_needed):
+            correction_needed = False
+            first_inds, last_inds = get_first_and_last()
+            print(limb_verts, "\n")
+            print(limb_in_joint, "\n")
+            print(first_inds,  "\n\n", last_inds)
         
         # Transfer calculated data into the object
         # Remove NaN-values to "filter" invalid/empty vertices out

@@ -32,6 +32,7 @@ class Tree_Node_Container(list):
     def reduce_tree_nodes(self, tree_data):
         crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
         parent_indices = self.parent_indices()
+        root_of_two = math.sqrt(2)
         
         def mark_pending_kill(node_index, node, parent):
             # Replace parents connection to node with connection children
@@ -48,10 +49,10 @@ class Tree_Node_Container(list):
             parent = self[parent_index]
             
             clearance = (node.location - parent.location).length
-            if (len(node.child_indices) > 1 and
-                clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius)):
+            if False: # (len(node.child_indices) > 1 and
+                #clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius) * root_of_two):
                 mark_pending_kill(i, node, parent)
-            if not tree_data.pr_enable_skinning:
+            if False: #not tree_data.pr_enable_skinning:
                 # Only nodes with exactly one child are candidates for angle based reduction
                 if len(node.child_indices) == 1:
                     child = self[node.child_indices[0]]
