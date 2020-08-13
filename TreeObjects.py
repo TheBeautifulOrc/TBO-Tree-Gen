@@ -130,8 +130,8 @@ class Tree_Object:
         plane_radii[missing_entries] = plane_base_radii[missing_entries]
         
         # Calculate vertices:
-        # Each vertex is an intersection point of three of the planes calculated above. Six planes on each node result
-        # in a total of 8 intersection points (arranged like the corners of a cube). 
+        # Each vertex is an intersection point of three of the planes calculated above. 
+        # Six planes on each node result in a total of 8 intersection points (arranged like the corners of a cube). 
         # The permutation core defines which planes will be intersected with each other for every node.
         # It makes sure that all possible intersections of neighboring planes (never oppsing planes) are calculated.
         # The indices in the core are correspondent to the indices of the direction map.
@@ -429,7 +429,8 @@ class Tree_Object:
             
         # Initialize sweeping
         # Generate first square on each limb
-        first_verts_unscaled = np.swapaxes([-np.sign(i - 1.5) * local_coordinates[:,1] + -np.sign((i % 2) - 0.5) * local_coordinates[:,2] for i in range(4)], 0, 1)
+        first_verts_unscaled = np.swapaxes([-np.sign(i - 1.5) * local_coordinates[:,1] + \
+            -np.sign((i % 2) - 0.5) * local_coordinates[:,2] for i in range(4)], 0, 1)
         raw_limb_verts = np.full((n_limbs, 2*max_nodes_per_limb-1, 4, 3), np.nan)
         raw_limb_verts[:,0] = first_verts_unscaled
         upper = limb_vecs[:,:-1]    # All but last rows of limb_vecs
@@ -475,11 +476,10 @@ class Tree_Object:
             # Write data back into the variable
             raw_limb_verts[:,l_step+1] = rotated_verts
         # Scale rotated verts by multiplying them with their respecive radii 
-        limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii, raw_limb_verts)
+        local_limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii, raw_limb_verts)
         # Move them to their designated positions to complete the sweeping-process
-        limb_verts += np.repeat(limb_positions, 4, axis=1).reshape(n_limbs, -1, 4, 3)
+        limb_verts = local_limb_verts + np.repeat(limb_positions, 4, axis=1).reshape(n_limbs, -1, 4, 3)
         
-        # Clean-Up
         # Helper function, that returns the first and last valid square in each branch
         def get_first_and_last():
             non_nan_indices = np.transpose(np.where(~np.isnan(limb_verts[:,:,0,0])))
@@ -488,6 +488,7 @@ class Tree_Object:
             first_indices = np.array([b[0] for b in separated_indices])
             last_indices = np.array([b[-1] for b in separated_indices])
             return first_indices, last_indices            
+        
         # Clean up first square on non-root branches
         limb_verts[1:,0] = np.nan
         # Clean up last square of all branches that have children (non-leaf branches)
@@ -496,6 +497,7 @@ class Tree_Object:
         _, last_inds = get_first_and_last()
         last_inds = last_inds[not_a_leaf]   # Take only the non-leafes 
         limb_verts[last_inds[:,0], last_inds[:,1]] = np.nan
+        
         # Clean up all squares that get create artifacts at joints
         limb_first_node = {}    # Maps with the number of the limb as the key and the ID of 
         limb_last_node = {}     # the limbs first/last node as value
@@ -514,18 +516,58 @@ class Tree_Object:
         [l.reverse() for l in limb_in_joint]
         # Convert to numpy-array for easier handling 
         # (in case of unhomogenous length, pad with np.nan)
-        limb_in_joint = np.array(list(itertools.zip_longest(*limb_in_joint, fillvalue=-1)), dtype=np.int).transpose()[1:]
-        # Use this data to check each joint for squares that are
-        # overlapping or overshadowing each other
+        limb_in_joint = \
+            np.array(list(itertools.zip_longest(*limb_in_joint, fillvalue=-1)), dtype=np.int).transpose()[1:]
+        # Position of all joints
         joint_positions = np.array([nodes[n].location for n in joints])[1:]
-        max_branching = max([len(l) for l in limb_in_joint])
         correction_needed = True    # Condition for continuing the while loop
         while(correction_needed):
             correction_needed = False
-            first_inds, last_inds = get_first_and_last()
-            print(limb_verts, "\n")
-            print(limb_in_joint, "\n")
-            print(first_inds,  "\n\n", last_inds)
+            first_inds, last_inds = get_first_and_last()    # Get indices involved in joints 
+            first_inds = np.append(first_inds, [-1, 0]).reshape(-1,2)   # Append a fallback index (pointing to np.nan)
+            # Get array of indices in correct order
+            indices = np.full((limb_in_joint.shape[0], limb_in_joint.shape[1], 2), -1, dtype=np.int)
+            indices[:,0] = last_inds[limb_in_joint[:,0]]
+            indices[:,1:] = first_inds[limb_in_joint[:,1:]] 
+            shaped_indices = indices.reshape(-1,2)  # Reshape array for actual use as indices
+            vert_sel_shape = (indices.shape[0], 1, indices.shape[1], 4, 3)
+            # Selected verts have the shape
+            # joint, permutation, square, vertex, member
+            sel_verts = limb_verts[shaped_indices[:,0], shaped_indices[:,1]].reshape(vert_sel_shape)
+            sel_verts = np.repeat(sel_verts, indices.shape[1], 1)
+            # Permutate sel_verts
+            for i in range(1, indices.shape[1]):
+                sel_verts[:,i] = np.roll(sel_verts[:,i], -i, 1)
+            # Local coordinates of all the selected verts (for normal calculation)
+            # they have the shape: joint, square, vertex, member
+            local_sel_verts = local_limb_verts\
+                [shaped_indices[:,0], shaped_indices[:,1]].reshape(indices.shape[0], indices.shape[1], 4, 3)
+            # Non-normalized normals of every square
+            normals = np.cross(local_sel_verts[:,:,0], local_sel_verts[:,:,1])
+            # Points that will be checked against to detect overshadowing.
+            # Stored in shape: joint, permutation, vertex/point, member
+            compare_points = np.full((indices.shape[0], indices.shape[1], (indices.shape[1]-1)*4+1, 3), np.nan)
+            compare_points[:,:,0] = np.repeat(joint_positions, indices.shape[1], axis=0)\
+                .reshape(compare_points[:,:,0].shape)
+            compare_points[:,:,1:] = sel_verts[:,:,1:].reshape(compare_points.shape[0], compare_points.shape[1], -1, 3)
+            # Differences of the compared points
+            compare_diffs = compare_points - np.repeat(sel_verts[:,:,0,0], compare_points.shape[-2], axis=-2)\
+                .reshape(compare_points.shape)
+            # Dot-product between the difference vectors and the normal of each square reveals if all
+            # vertices of the other squares are on the "correct" side.
+            compare_dots = np.einsum("jpvm,jpm->jpv", compare_diffs, normals)
+            compare_signs = np.sign(compare_dots)   # Only the signs are relevant for evaluation
+            compare_signs[compare_signs[:,:,0] < 0] *= -1
+            compare_signs[np.isnan(compare_signs)] = 1  # Fill nan values, so they don't interfere with the result
+            # Returns "True" for squares that don't have to be deleted
+            square_valid = np.all(compare_signs > 0, axis=-1)
+            delete_indices = indices[~square_valid]
+            # Delete all overshadowed squares in the original data-structure
+            limb_verts[delete_indices[:,0], delete_indices[:,1]] = np.nan
+            correction_needed = ~np.all(square_valid)
+        
+        # Remove squares that have no geometry information
+        # TODO
         
         # Transfer calculated data into the object
         # Remove NaN-values to "filter" invalid/empty vertices out
