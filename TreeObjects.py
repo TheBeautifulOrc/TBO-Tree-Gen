@@ -485,9 +485,14 @@ class Tree_Object:
             non_nan_indices = np.transpose(np.where(~np.isnan(limb_verts[:,:,0,0])))
             splitter = np.flatnonzero(np.diff(non_nan_indices[:,0])) + 1
             separated_indices = np.array_split(non_nan_indices, splitter)
-            first_indices = np.array([b[0] for b in separated_indices])
-            last_indices = np.array([b[-1] for b in separated_indices])
-            return first_indices, last_indices            
+            first_indices_incomplete = np.array([b[0] for b in separated_indices])
+            last_indices_incomplete = np.array([b[-1] for b in separated_indices])
+            first_indices = np.full((n_limbs, 2), [-1,0], dtype=np.int)
+            last_indices = np.full_like(first_indices, [-1,0])
+            for elem_f, elem_l in zip(first_indices_incomplete, last_indices_incomplete):
+                first_indices[elem_f[0]] = elem_f
+                last_indices[elem_l[0]] = elem_l
+            return first_indices, last_indices
         
         # Clean up first square on non-root branches
         limb_verts[1:,0] = np.nan
@@ -567,7 +572,21 @@ class Tree_Object:
             correction_needed = ~np.all(square_valid)
         
         # Remove squares that have no geometry information
-        # TODO
+        # Synchronize verts in local coords with the previous deletions
+        local_limb_verts[np.isnan(limb_verts)] = np.nan
+        # Calculate normals
+        normals = np.cross(local_limb_verts[:,:,0], local_limb_verts[:,:,1])
+        normals /= la.norm(normals, 2, -1, True)
+        # Calculate differences of the normals to the normales of the previous and next squares
+        diff_to_prev = np.diff(normals, axis=-2)[:,:-1]
+        diff_to_next = np.flip(np.diff(np.flip(normals, axis=-2), axis=-2)[:,:-1], axis=-2)
+        # If these differences are close to zero, the squares are (roughly) parallel
+        parallel_to_prev = np.all(np.isclose(diff_to_prev, 0, atol=1.e-2), axis=-1)
+        parallel_to_next = np.all(np.isclose(diff_to_next, 0, atol=1.e-2), axis=-1)
+        # If a square is parallel to the previous and next square, it is considered redundant
+        square_redundant = np.logical_and(parallel_to_prev, parallel_to_next)
+        # Delete redundant squares
+        limb_verts[:,1:-1][square_redundant] = np.nan
         
         # Transfer calculated data into the object
         # Remove NaN-values to "filter" invalid/empty vertices out
