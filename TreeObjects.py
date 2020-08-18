@@ -364,7 +364,7 @@ class Tree_Object:
         
         # Check for empty trees
         if(n_nodes < 2):
-            return
+            return -1
         
         # Create a node structure that represents the tree branchwise 
         # Joints are all nodes with more than 2 children
@@ -385,8 +385,11 @@ class Tree_Object:
                 limbs.append(limb)
         
         # Prepare data as numpy structures for further calculations
-        # Initalize numpy arrays
         n_limbs = len(limbs)
+        # Check for trees with only one limb
+        if(n_limbs < 2):
+            return -2
+        # Initalize numpy arrays
         max_nodes_per_limb = max([len(limb) for limb in limbs])
         node_positions = np.full((n_limbs, max_nodes_per_limb, 3), np.nan)
         node_radii = np.full((n_limbs, max_nodes_per_limb), np.nan)
@@ -588,6 +591,26 @@ class Tree_Object:
         # Delete redundant squares
         limb_verts[:,1:-1][square_redundant] = np.nan
         
+        # Combine all joints that are connected with branches that are empty
+        # Find all limb-indices that have been completely deleted 
+        dead_limb_inds = np.where(np.all(np.isnan(limb_verts).reshape(n_limbs, -1), axis=-1))[0].tolist()
+        # Create a dict containing all joints containing one particular branch
+        limb_in_joint_dict = defaultdict(list)
+        for r, row in enumerate(limb_in_joint):
+            limb_in_joint_dict[r] = [e for e in row.tolist() if e != -1]
+        inv_limb_joint_dict = defaultdict(list)
+        {inv_limb_joint_dict[v].append(k) for k in limb_in_joint_dict for v in limb_in_joint_dict[k]}
+        # Find joints that need to be combined
+        joints_to_combine = {key : inv_limb_joint_dict[key] for key in dead_limb_inds}
+        # Only limbs that connect two joints are of concern
+        joints_to_combine = {key : val for key, val in joints_to_combine.items() if len(val) == 2}
+        # Combine selected joints
+        for limb, joints in joints_to_combine.items():
+            first, second = joints
+            new_entries = [e for e in limb_in_joint_dict[first] + limb_in_joint_dict[second] if e != limb]
+            limb_in_joint_dict[first] = new_entries
+            limb_in_joint_dict.pop(second)
+            
         # Transfer calculated data into the object
         # Remove NaN-values to "filter" invalid/empty vertices out
         printable_limb_verts = limb_verts[~np.isnan(limb_verts)].reshape(-1,3)
