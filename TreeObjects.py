@@ -601,19 +601,29 @@ class Tree_Object:
         inv_limb_joint_dict = defaultdict(list)
         {inv_limb_joint_dict[v].append(k) for k in limb_in_joint_dict for v in limb_in_joint_dict[k]}
         # Find joints that need to be combined
-        joints_to_combine = {key : inv_limb_joint_dict[key] for key in dead_limb_inds}
-        # Only limbs that connect two joints are of concern
-        joints_to_combine = {key : val for key, val in joints_to_combine.items() if len(val) == 2}
+        joints_with_dead_limbs = {key : inv_limb_joint_dict[key] for key in dead_limb_inds}
+        # Only two joints connected by an empty limb can be joined  
+        joints_to_combine = {key : val for key, val in joints_with_dead_limbs.items() if len(val) == 2}
         # Combine selected joints
         for limb, joints in joints_to_combine.items():
             first, second = joints
             new_entries = [e for e in limb_in_joint_dict[first] + limb_in_joint_dict[second] if e != limb]
             limb_in_joint_dict[first] = new_entries
             limb_in_joint_dict.pop(second)
+        # Delete all other references to dead limbs
+        joints_to_clean = {key : val for key, val in joints_with_dead_limbs.items() if len(val) < 2}
+        for limb, joints in joints_to_clean.items():
+            limb_in_joint_dict[joints[0]] = [e for e in limb_in_joint_dict[joints[0]] if e != limb]
+        [limb_in_joint_dict[key].sort() for key in limb_in_joint_dict]
             
         # Transfer calculated data into the object
         # Remove NaN-values to "filter" invalid/empty vertices out
         printable_limb_verts = limb_verts[~np.isnan(limb_verts)].reshape(-1,3)
+        # Index list for these unordered verts
+        raw_index_list = np.cumsum(np.array([np.count_nonzero(~np.isnan(limb[:,0,0])) for limb in limb_verts]))
+        raw_index_list = np.concatenate((np.array([0]), raw_index_list))
+        index_list = np.unique(raw_index_list)
+        n_squares = index_list[-1]
         # Create bmesh
         bm = bmesh.new()
         # Generate verts
@@ -621,14 +631,26 @@ class Tree_Object:
             bm.verts.new(v)
         bm.verts.index_update()
         bm.verts.ensure_lookup_table()
-        # Generate edges 
-        for i, v in enumerate(printable_limb_verts):
-            if i % 4 == 0:
-                verts = bm.verts[i:i+4]
-                bm.edges.new((verts[0], verts[1]))
-                bm.edges.new((verts[1], verts[3]))
-                bm.edges.new((verts[3], verts[2]))
-                bm.edges.new((verts[2], verts[0]))
+        # Generate edges
+        # Edges within squares 
+        for square in range(n_squares):
+            vert = square * 4
+            verts = bm.verts[vert:vert+4]
+            bm.edges.new((verts[0], verts[1]))
+            bm.edges.new((verts[1], verts[3]))
+            bm.edges.new((verts[3], verts[2]))
+            bm.edges.new((verts[2], verts[0]))
+        # Edges connecting different squares
+        index_counter = 0
+        for square in range(n_squares):
+            if square != index_list[index_counter]:
+                vert = square * 4
+                last_verts = bm.verts[vert-4:vert]
+                curr_verts = bm.verts[vert:vert+4]
+                for lv, cv in zip(last_verts, curr_verts):
+                    bm.edges.new((lv, cv))
+            else: 
+                index_counter += 1
         bm.edges.index_update()
         bm.edges.ensure_lookup_table()
         # Overwrite object-mesh
