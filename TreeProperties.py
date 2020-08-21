@@ -51,7 +51,7 @@ class TreeProperties(PropertyGroup):
             ('FACE', "Surface", "Points get scattered across the objects surface"),
             ('VERT', "Vertices", "Points get placed on the objects vertices")],
         name="Attraction Point Emitter",
-        description="Determines where the attracion points get emitted from",
+        description="Determines where the attraction points get emitted from",
         default='VOLUME'
     )
     dist_p_attr : EnumProperty(

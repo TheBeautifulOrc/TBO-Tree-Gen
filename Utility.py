@@ -10,7 +10,7 @@ from dataclasses import dataclass
 la = np.linalg
 mask = np.ma
 
-# Transfomrs a list of points according to the given 
+# Transforms a list of points according to the given 
 # 4x4 transformation matrix using numpy.
 # Returns the transformed vertices as a list. 
 def transform_points(transf_matr, points):

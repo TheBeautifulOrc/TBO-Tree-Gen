@@ -370,7 +370,7 @@ class Tree_Object:
         # Joints are all nodes with more than 2 children
         joints = [0]
         joints.extend([n for n, _ in enumerate(nodes) if len(nodes[n].child_indices) > 1])
-        # Limbs are collections of nodes inbetween joints
+        # Limbs are collections of nodes in between joints
         limbs = []
         for i in joints:
             p = nodes[i]
@@ -389,7 +389,7 @@ class Tree_Object:
         # Check for trees with only one limb
         if(n_limbs < 2):
             return -2
-        # Initalize numpy arrays
+        # Initialize numpy arrays
         max_nodes_per_limb = max([len(limb) for limb in limbs])
         node_positions = np.full((n_limbs, max_nodes_per_limb, 3), np.nan)
         node_radii = np.full((n_limbs, max_nodes_per_limb), np.nan)
@@ -478,7 +478,7 @@ class Tree_Object:
             rotated_verts = term1 + term2 + term3
             # Write data back into the variable
             raw_limb_verts[:,l_step+1] = rotated_verts
-        # Scale rotated verts by multiplying them with their respecive radii 
+        # Scale rotated verts by multiplying them with their respective radii 
         local_limb_verts = np.einsum('ij,ijkl->ijkl', limb_radii, raw_limb_verts)
         # Move them to their designated positions to complete the sweeping-process
         limb_verts = local_limb_verts + np.repeat(limb_positions, 4, axis=1).reshape(n_limbs, -1, 4, 3)
@@ -523,7 +523,7 @@ class Tree_Object:
         [limb_in_joint[k].extend(limb_last_node_inv[key]) for k, key in enumerate(limb_first_node_inv)]
         [l.reverse() for l in limb_in_joint]
         # Convert to numpy-array for easier handling 
-        # (in case of unhomogenous length, pad with np.nan)
+        # (in case of in-homogenous length, pad with np.nan)
         limb_in_joint = \
             np.array(list(itertools.zip_longest(*limb_in_joint, fillvalue=-1)), dtype=np.int).transpose()[1:]
         # Position of all joints

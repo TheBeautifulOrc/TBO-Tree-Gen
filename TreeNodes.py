@@ -79,7 +79,7 @@ class Tree_Node_Container(list):
         n_nodes = len(self)   # Total number of tree nodes (relevant for weight factor calculation)
         for node in reversed(self):   # For each node (in reversed order)
             for c in node.child_indices:    # Look at each child
-                node.weight += self[c].weight     # And add the child's (previoulsy calculated) weight to the nodes weight
+                node.weight += self[c].weight     # And add the child's (previously calculated) weight to the nodes weight
             node.weight_factor = math.sqrt(node.weight / n_nodes)  # The weight factor is ratio between all nodes and the nodes that are connected to this particular node
 
     # Iterates the growth algorithm over the given tree nodes.
@@ -130,13 +130,13 @@ class Tree_Node_Container(list):
     def calculate_depths(self):
         for tn in self:   # For each tree node 
             if len(tn.child_indices) > 1:   # If the node is a branching point
-                child_depth = tn.depth + 1  # The child branches shlould be of higher depth
+                child_depth = tn.depth + 1  # The child branches should be of higher depth
             else:   # If there's only one or no child
                 child_depth = tn.depth  # The child is a continuation of the current branch and should therefore have the same depth
             for child in tn.child_indices:
                 self[child].depth = child_depth
 
-    # Seperates a list of mixed nodes.
+    # Separates a list of mixed nodes.
     # Returns a list of all nodes that have obj as parent.
     def separate_by_object(self, obj):
         separate_nodes = Tree_Node_Container()

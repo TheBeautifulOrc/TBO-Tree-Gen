@@ -110,7 +110,7 @@ class VRSubPanel(PanelTemplate, Panel):
 
         grid = layout.grid_flow(row_major=True, columns=2)
         
-        grid.label(text="Reduciton Angle")
+        grid.label(text="Reduction Angle")
         grid.prop(tree_data, "vr_red_angle", text="")
 
 class SKSubPanel(PanelTemplate, Panel):
