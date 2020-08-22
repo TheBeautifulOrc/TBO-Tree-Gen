@@ -483,9 +483,9 @@ class Tree_Object:
         # Move them to their designated positions to complete the sweeping-process
         limb_verts = local_limb_verts + np.repeat(limb_positions, 4, axis=1).reshape(n_limbs, -1, 4, 3)
         
-        # Helper functions
-        # Return the first and last valid square in each branch
-        def get_first_and_last():
+        # Helper functions for cleanup
+        # Return the first and last valid square of each branch from the limb_verts
+        def get_limb_verts_first_last():
             non_nan_indices = np.transpose(np.where(~np.isnan(limb_verts[:,:,0,0])))
             splitter = np.flatnonzero(np.diff(non_nan_indices[:,0])) + 1
             separated_indices = np.array_split(non_nan_indices, splitter)
@@ -501,8 +501,13 @@ class Tree_Object:
         def delete_overshadowed():
             correction_needed = True    # Condition for continuing the while loop
             while(correction_needed):
-                first_inds, last_inds = get_first_and_last()    # Get indices involved in joints 
+                first_inds, last_inds = get_limb_verts_first_last()    # Get indices involved in joints 
                 first_inds = np.append(first_inds, [-1, 0]).reshape(-1,2)   # Append a fallback index (pointing to np.nan)
+                # Convert limb_in_joint_dict to numpy-array for easier handling 
+                # (in case of in-homogenous length, pad with np.nan)
+                limb_in_joint = [val for _, val in limb_in_joint_dict.items()]
+                limb_in_joint = \
+                    np.array(list(itertools.zip_longest(*limb_in_joint, fillvalue=-1)), dtype=np.int).transpose()
                 # Get array of indices in correct order
                 indices = np.full((limb_in_joint.shape[0], limb_in_joint.shape[1], 2), -1, dtype=np.int)
                 indices[:,0] = last_inds[limb_in_joint[:,0]]
@@ -525,7 +530,8 @@ class Tree_Object:
                 # Points that will be checked against to detect overshadowing.
                 # Stored in shape: joint, permutation, vertex/point, member
                 compare_points = np.full((indices.shape[0], indices.shape[1], (indices.shape[1]-1)*4+1, 3), np.nan)
-                compare_points[:,:,0] = np.repeat(joint_positions, indices.shape[1], axis=0)\
+                relevant_joint_positions = joint_positions[[key for key in limb_in_joint_dict]]
+                compare_points[:,:,0] = np.repeat(relevant_joint_positions, indices.shape[1], axis=0)\
                     .reshape(compare_points[:,:,0].shape)
                 compare_points[:,:,1:] = sel_verts[:,:,1:].reshape(compare_points.shape[0], compare_points.shape[1], -1, 3)
                 # Differences of the compared points
@@ -550,38 +556,32 @@ class Tree_Object:
         # Clean up last square of all branches that have children (non-leaf branches)
         # Find all non-leaf branches
         not_a_leaf = np.array([len(limb[-1].child_indices) != 0 for limb in limbs])
-        _, last_inds = get_first_and_last()
+        _, last_inds = get_limb_verts_first_last()
         last_inds = last_inds[not_a_leaf]   # Take only the non-leafes 
         limb_verts[last_inds[:,0], last_inds[:,1]] = np.nan
         
         # Clean up all squares that get create artifacts at joints
-        limb_first_node = {}    # Maps with the number of the limb as the key and the ID of 
-        limb_last_node = {}     # the limbs first/last node as value
+        # Cleanup preparations...
+        # Which limbs are connected via joints?
+        limb_first_node = {}    # Maps with the number of the limb as the key  
+        limb_last_node = {}     # and the ID of the limbs first/last node as value
         # Fill the maps with data
         for l, limb in enumerate(limbs):
             limb_first_node[l] = id(limb[0])
             limb_last_node[l] = id(limb[-1])
         # Invert the maps
-        limb_first_node_inv, limb_last_node_inv = defaultdict(list), defaultdict(list)
+        limb_first_node_inv, limb_last_node_inv, limb_in_joint_dict = defaultdict(list), defaultdict(list), defaultdict(list)
         {limb_first_node_inv[v].append(k) for k, v in limb_first_node.items()}
         {limb_last_node_inv[v].append(k) for k, v in limb_last_node.items()}
-        # Create lists showing which limbs are part of which joint 
-        # (the joint "rests" on the end of the last entry)
-        limb_in_joint = [limb_first_node_inv[key] for key in limb_first_node_inv]
-        [limb_in_joint[k].extend(limb_last_node_inv[key]) for k, key in enumerate(limb_first_node_inv)]
-        [l.reverse() for l in limb_in_joint]
-        # Convert to numpy-array for easier handling 
-        # (in case of in-homogenous length, pad with np.nan)
-        limb_in_joint = \
-            np.array(list(itertools.zip_longest(*limb_in_joint, fillvalue=-1)), dtype=np.int).transpose()[1:]
-        # Position of all joints
-        joint_positions = np.array([nodes[n].location for n in joints])[1:]
-        # Create a dict containing all joints containing one particular branch
-        limb_in_joint_dict = defaultdict(list)
-        for r, row in enumerate(limb_in_joint):
-            limb_in_joint_dict[r] = [e for e in row if e != -1]
+        # Combine the inverted dicts to create a dict containing all limbs connected by one particular joint
+        for k, key in enumerate(limb_first_node_inv):
+            limb_in_joint_dict[k] = sorted(limb_first_node_inv[key] + limb_last_node_inv[key])
+        limb_in_joint_dict.pop(0)
+        joint_positions = np.array([nodes[n].location for n in joints])
         joints_collapsed = True # Track whether routine needs to be rerun
         while(joints_collapsed):
+            # Delete all squares that are overshadowed and thus unfit to be part of a convex hull
+            # This step needs to be re-run every time joints are merged 
             delete_overshadowed()
             # Combine all joints that are connected with branches that are empty
             # Find all limb-indices that have been completely deleted 
