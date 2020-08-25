@@ -576,7 +576,6 @@ class Tree_Object:
         # Combine the inverted dicts to create a dict containing all limbs connected by one particular joint
         for k, key in enumerate(limb_first_node_inv):
             limb_in_joint_dict[k] = sorted(limb_first_node_inv[key] + limb_last_node_inv[key])
-        limb_in_joint_dict.pop(0)
         joint_positions = np.array([nodes[n].location for n in joints])
         joints_collapsed = True # Track whether routine needs to be rerun
         while(joints_collapsed):
@@ -660,29 +659,54 @@ class Tree_Object:
                 index_counter += 1
         bm.edges.index_update()
         bm.edges.ensure_lookup_table()
-        # Convex hulls at joints
-        # hull_inds = []
-        # for key, val in limb_in_joint_dict.items():
-        #     hull_inds.append([raw_index_list[v]*4+i for v in val[1:] for i in range(4)])
-        #     end_of_first_entry = (raw_index_list[val[0]+1] - 1) * 4
-        #     hull_inds[-1].extend([end_of_first_entry+i for i in range(4)])
-        # # Fill geometry with faces 
-        # bmesh.ops.contextual_create(bm, 
-        #                             geom=[edge for edge in bm.edges], 
-        #                             mat_nr=0,
-        #                             use_smooth=False)
-        # for sublist in hull_inds:
-        #     hull_verts = [bm.verts[e] for e in sublist]
-        #     bmesh.ops.convex_hull(bm, input=hull_verts, use_existing_faces=True)
-        # bmesh.ops.join_triangles(bm, 
-        #                          faces=[face for face in bm.faces], 
-        #                          cmp_seam=False,
-        #                          cmp_sharp=False,
-        #                          cmp_uvs=False,
-        #                          cmp_vcols=False,
-        #                          cmp_materials=False,
-        #                          angle_face_threshold=45.0,
-        #                          angle_shape_threshold=45.0)
+        # Fill geometry with faces 
+        bmesh.ops.contextual_create(bm, 
+                                    geom=[edge for edge in bm.edges], 
+                                    mat_nr=0,
+                                    use_smooth=False)
+        # Indices of verts and edges that are part of the joints 
+        hull_inds = []
+        for key, val in limb_in_joint_dict.items():
+            hull_inds.append([raw_index_list[v]*4+i for v in val[1:] for i in range(4)])
+            #TODO find out what creates the error on some seeds
+            end_of_first_entry = (raw_index_list[val[0]+1] - 1) * 4
+            hull_inds[-1].extend([end_of_first_entry+i for i in range(4)])
+        # Store as numpy array for easier handling
+        hull_inds = \
+            np.array(list(itertools.zip_longest(*hull_inds, fillvalue=-1)), dtype=np.int).transpose()
+        # Group all vertices that make up a square
+        hull_inds = hull_inds.reshape((hull_inds.shape[0],-1,4))
+        # Identify all faces that need to be deleted
+        face_id_dict = {id(face) : face for face in bm.faces}   # ID -> Face
+        faces_to_delete = [] 
+        # Get list of IDs of all faces that need to be deleted 
+        for square in hull_inds[hull_inds > -1].reshape((-1,4)):
+            edges = [bm.edges[i] for i in square[:2]]
+            linked_faces = [edge.link_faces for edge in edges]
+            linked_face_ids = [[id(face) for face in seq] for seq in linked_faces]
+            del_face = list(set(linked_face_ids[0]).intersection(linked_face_ids[1]))[0]
+            faces_to_delete.append(del_face)
+        faces_to_delete = list(set(faces_to_delete))    # Remove duplicates 
+        faces_to_delete = [face_id_dict[e] for e in faces_to_delete]    # Turn IDs back into faces
+        # Create convex hulls around the joints  
+        # TODO Speed up convex hull creation      
+        for joint in hull_inds.reshape((hull_inds.shape[0],-1)):
+            hull_verts = [bm.verts[e] for e in joint if e != -1]
+            bmesh.ops.convex_hull(bm, input=hull_verts, use_existing_faces=True)
+        # Join triangles 
+        bmesh.ops.join_triangles(bm, 
+                                 faces=[face for face in bm.faces], 
+                                 cmp_seam=False,
+                                 cmp_sharp=False,
+                                 cmp_uvs=False,
+                                 cmp_vcols=False,
+                                 cmp_materials=False,
+                                 angle_face_threshold=45.0,
+                                 angle_shape_threshold=45.0)
+        # Delete unecessary faces
+        bmesh.ops.delete(bm, geom=faces_to_delete, context="FACES_ONLY")
+        # Recalculate normals
+        bmesh.ops.recalc_face_normals(bm, faces=[face for face in bm.faces])
         # Overwrite object-mesh
         bm.to_mesh(self.bl_object.data)
         bm.free()
