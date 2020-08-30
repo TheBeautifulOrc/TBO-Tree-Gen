@@ -1,3 +1,5 @@
+# Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
+
 import bpy
 import bmesh
 import numpy as np
@@ -10,24 +12,23 @@ from dataclasses import dataclass
 la = np.linalg
 mask = np.ma
 
-# Transforms a list of points according to the given 
-# 4x4 transformation matrix using numpy.
-# Returns the transformed vertices as a list. 
-def transform_points(transf_matr, points):
-    l  = len(points)
-    np_points = np.array([element for tupl in points for element in tupl], dtype=np.float64)
-    np_points.resize(l,3)
-    np_tfm = np.array([element for tupl in transf_matr for element in tupl], dtype=np.float64)
-    np_tfm.resize(4,4)
-    np_retval = np.transpose((np_tfm @ np.pad(np_points.T, ((0,1), (0,0)), 'constant', constant_values=(1)))[0:3,:])
-    retval = []
-    for i in range(np_retval.shape[0]):
-        retval.append(np_retval[i,:])
-    return retval
-
-# Generates points in/on an object using a particle system.
-# Returns the points as a list 
 def get_points_in_object(context, tree_data, temp_name="temp_part_sys"):
+    """
+    Returns points within mesh.
+    
+    Generates points in/on an object using a Blender particle system.
+    
+    Keyword arguments:
+        context : bpy.context 
+            Context variable of the current Blender session
+        tree_data : TreeProperties 
+            List of all properties of the tree that is being worked on
+        temp_part_sys : string
+            Name for the temporary particle system that is being used
+            
+    Return value: 
+        List of (Blender) mathutils.Vector
+    """
     obj = tree_data.shape_object
     seed = tree_data.seed
     n_points = tree_data.n_p_attr
@@ -49,7 +50,19 @@ def get_points_in_object(context, tree_data, temp_name="temp_part_sys"):
     ps = obj.modifiers.get(temp_name)
     obj.modifiers.remove(ps)
     np_arr.resize(n_points,3)
-    arr = []
-    for i in range(np_arr.shape[0]):
-        arr.append(Vector((np_arr[i,:])))
+    arr = np_arr.tolist()
+    arr = [Vector(e) for e in arr]
     return arr
+
+def quick_hull(points):
+    """
+    Generates convex hulls.
+    
+    Generates convex hulls around all given sets of points. 
+    
+    Keyword arguments: 
+        points : numpy.array 
+            Numpy array with structe [set, point, index/members (4D)]
+    """
+    # TODO: Implement parallelized QuickHull algorithm
+    pass

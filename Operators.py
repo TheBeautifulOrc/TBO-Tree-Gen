@@ -15,10 +15,10 @@ from .TreeObjects import Tree_Object
 from .Utility import get_points_in_object
 
 class CreateTree(Operator):
-    """Operator that creates a pseudo-random realistic tree"""
+    """Operator that creates a pseudo-random, realistic looking tree"""
     bl_idname = "tbo.create_tree"
     bl_label = "Create Tree"
-    bl_description = "Operator that creates a pseudo-random realistic tree"
+    bl_description = "Operator that creates a pseudo-random, realistic looking tree"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -38,6 +38,7 @@ class CreateTree(Operator):
 
     def execute(self, context):
         # Debug information
+        # TODO: Remove debugging overhead
         try:
             os.system("clear")  # Will fail on Windows 
         except:
@@ -107,7 +108,7 @@ class CreateTree(Operator):
             # If not in preview-mode create mesh with volume
             else:
                 t1 = time.perf_counter()
-                tree.generate_mesh_b_mesh()
+                tree.generate_mesh_ji_liu_wang()
                 t2 = time.perf_counter()
                 print(t2-t1)
             

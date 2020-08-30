@@ -1,19 +1,22 @@
 import bpy 
 import math
-from bpy.props import (PointerProperty, BoolProperty, IntProperty, FloatProperty, EnumProperty)
+from bpy.props import PointerProperty, BoolProperty, IntProperty, FloatProperty, EnumProperty
 from bpy.types import PropertyGroup
 
 class TreeProperties(PropertyGroup):
+    """
+    Blender property used for all tree settings.
+    
+    A custom Blender property that holds all user settings 
+    controlling the creation of a new tree. 
+    It is individually stored within each .blend-file.
+    """
     def shape_object_poll(self, obj):
+        """Polling function that checks whether the given shape object is valid."""
         return ((obj.type == 'MESH') 
             and (obj.name in bpy.data.objects)
         )
         
-    def sk_profile_curve_poll(self, obj):
-        return ((obj.type == 'CURVE') 
-            and (obj.name in bpy.data.objects)
-        )
-
     pr_enable_reduction : BoolProperty(
         name="Enable Vertex Reduction",
         description="Should the vertex reduction be executed?",
@@ -115,10 +118,4 @@ class TreeProperties(PropertyGroup):
         default=0.01,
         min=0.0,
         unit='LENGTH'
-    )
-    sk_overlap_factor : FloatProperty(
-        name="Overlap factor",
-        description="Determines how much the metaballs used for skinning overlap. Higher values lead to better quality models at the cost of more processing time",
-        default=4,
-        min=1
     )

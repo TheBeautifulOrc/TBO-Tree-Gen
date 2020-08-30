@@ -11,28 +11,66 @@ from collections import defaultdict
 
 @dataclass
 class Tree_Node:
+    """
+    Data-collection used to store geometry information of an unfinished tree.
+    
+    During it's creation the tree is grown as a tree (the data-structure) of
+    nodes. Each instance of this class will hold all relevant information 
+    for one of these nodes. 
+    
+    Attributes: 
+        location : mathutils.Vector
+            Location of this node in 3D-space
+        parent_object : bpy.types.Object 
+            Blender object that will become the tree that this node is part of 
+        weight : int
+            Number of nodes that are children of this node 
+        weight_factor : float 
+            This nodes weight divided by the trees overall weight 
+        child_indices : list(int)
+            Indices of all nodes that are children of this node 
+    """
     location : Vector
     parent_object : bpy.types.Object
-    depth : int = 0
     weight : int = 1
     weight_factor : float = 0.0
     child_indices : List[int] = field(default_factory=list)
     
 class Tree_Node_Container(list):
-    # Returns a list of indices that point to the corresponding nodes parent.   
+    """
+    Collection of many Tree_Nodes.
+    
+    During the growth of trees this container is used to keep track 
+    of all the nodes that are generated during the process. 
+    After separation by tree it provides utilities to calculate 
+    node weights.
+    """
     def parent_indices(self):
+        """Returns a list of indices pointing to the parent of each node."""
         parent_indices = [0] * len(self)  # List of parent indices
         for i, node in enumerate(self):   # Setup parent indices
             for c in node.child_indices:
                 parent_indices[c] = i
         return parent_indices
      
-    # Reduces the vertex count of a list of tree nodes
-    # Returns a new list of tree nodes
     def reduce_tree_nodes(self, tree_data):
+        """
+        Reduces the amount of TreeNodes.
+        
+        Reduces the the amount of tree nodes by deleting 
+        nodes that change the overall geometry significantly.
+        
+        Keyword arguments:
+            tree_data : TreeProperties 
+                List of all properties of the tree that is being worked on
+        
+        Return value:
+            A new, reduced list of tree nodes
+        """
         crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
         parent_indices = self.parent_indices()
-        root_of_two = math.sqrt(2)
+        # TODO: Clean up the unnecessary parts of this function
+        #root_of_two = math.sqrt(2)
         
         def mark_pending_kill(node_index, node, parent):
             # Replace parents connection to node with connection children
@@ -48,7 +86,7 @@ class Tree_Node_Container(list):
             parent_index = parent_indices[i]
             parent = self[parent_index]
             
-            clearance = (node.location - parent.location).length
+            # clearance = (node.location - parent.location).length
             if False: # (len(node.child_indices) > 1 and
                 #clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius) * root_of_two):
                 mark_pending_kill(i, node, parent)
@@ -74,17 +112,35 @@ class Tree_Node_Container(list):
             node.child_indices = [correspondence[index] for index in node.child_indices]
             node.child_indices = list(dict.fromkeys(node.child_indices))
             
-    # Evaluates the nodes weight based on the number of recursive children it has
     def calculate_weights(self):
+        """
+        Caluclates node weights. 
+        
+        Evaluates the nodes weights based on the number of recursive children it has.
+        """
         n_nodes = len(self)   # Total number of tree nodes (relevant for weight factor calculation)
         for node in reversed(self):   # For each node (in reversed order)
             for c in node.child_indices:    # Look at each child
                 node.weight += self[c].weight     # And add the child's (previously calculated) weight to the nodes weight
             node.weight_factor = math.sqrt(node.weight / n_nodes)  # The weight factor is ratio between all nodes and the nodes that are connected to this particular node
 
-    # Iterates the growth algorithm over the given tree nodes.
-    # Returns 'True' if new nodes have been added.
     def iterate_growth(self, p_attr, tree_data, d_i_override=None):
+        """
+        One iteration step of the growth algorithm. 
+        
+        Iterates the growth algorithm over the given tree nodes by one step.
+        
+        Keyword arguments:
+            p_attr : list(mathutils.Vector)
+                List of all attraction points
+            tree_data : TreeProperties 
+                List of all properties of the tree that is being worked on
+            d_i_override : float
+                Manual override for influence distance of the algorithm 
+                
+        Returns value:
+            'True' if new nodes have been added, otherwise 'False'
+        """
         # Get tree_data values
         D = tree_data.sc_D
         d_i = d_i_override if d_i_override is not None else tree_data.sc_d_i * D
@@ -126,19 +182,17 @@ class Tree_Node_Container(list):
             p_attr.remove(p)
         return (len(corr) > 0)
 
-    # Evaluates the depth (and thus the thickness) of every tree node
-    def calculate_depths(self):
-        for tn in self:   # For each tree node 
-            if len(tn.child_indices) > 1:   # If the node is a branching point
-                child_depth = tn.depth + 1  # The child branches should be of higher depth
-            else:   # If there's only one or no child
-                child_depth = tn.depth  # The child is a continuation of the current branch and should therefore have the same depth
-            for child in tn.child_indices:
-                self[child].depth = child_depth
-
-    # Separates a list of mixed nodes.
-    # Returns a list of all nodes that have obj as parent.
     def separate_by_object(self, obj):
+        """
+        Separates a TreeNodes by parent object.
+        
+        Keyword arguments:
+            obj : bpy.types.Object
+                Object whose children shall be returned
+            
+        Return value:
+            Tree_Node_Container containing all nodes that have obj as parent
+        """
         separate_nodes = Tree_Node_Container()
         corr = {}
         corr_counter = 0
