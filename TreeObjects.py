@@ -15,6 +15,7 @@ import itertools
 
 from .TreeNodes import Tree_Node, Tree_Node_Container
 from .TreeProperties import TreeProperties
+from .Utility import transform_points, quick_hull
         
 class Tree_Object:
     """
@@ -41,6 +42,27 @@ class Tree_Object:
         self.bl_object = bl_object
         self.nodes = nodes
         self.tree_data = tree_data
+        
+    def generate_skeltal_mesh(self):
+        # Calculate vertices in local space 
+        verts = [n.location for n in self.nodes]
+        tf = self.bl_object.matrix_world.inverted()
+        verts = transform_points(tf, verts)
+        # Create bmesh
+        bm = bmesh.new()
+        # Insert vertices
+        for v in verts:
+            bm.verts.new(v)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        # Create edges
+        for p, n in enumerate(self.nodes):
+            for c in n.child_indices:
+                bm.edges.new((bm.verts[p], bm.verts[c]))
+        bm.edges.index_update()
+        bm.edges.ensure_lookup_table()
+        bm.to_mesh(self.bl_object.data)
+        bm.free()
         
     def generate_mesh_ji_liu_wang(self):
         """
@@ -380,11 +402,13 @@ class Tree_Object:
             faces_to_delete.append(del_face)
         faces_to_delete = list(set(faces_to_delete))    # Remove duplicates 
         faces_to_delete = [face_id_dict[e] for e in faces_to_delete]    # Turn IDs back into faces
-        # Create convex hulls around the joints  
-        # TODO: Speed up convex hull creation      
-        for joint in hull_inds.reshape((hull_inds.shape[0],-1)):
-            hull_verts = [bm.verts[e] for e in joint if e != -1]
-            bmesh.ops.convex_hull(bm, input=hull_verts, use_existing_faces=True)
+        # Create convex hulls around the joints
+        hull_verts = np.array([[c for c in bm.verts[e].co] if e != -1 else [np.nan, np.nan, np.nan] 
+                      for e in hull_inds.reshape(-1)]).reshape((hull_inds.shape[0], -1, 3))
+        hull_inds = hull_inds.astype(np.float64)
+        hull_inds[np.isclose(hull_inds, -1.0)] = np.nan
+        hull_verts = np.concatenate((hull_verts, hull_inds.reshape((hull_inds.shape[0], -1, 1))), axis=-1)
+        quick_hull(hull_verts)
         # Join triangles 
         bmesh.ops.join_triangles(bm, 
                                  faces=[face for face in bm.faces], 

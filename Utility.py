@@ -12,6 +12,21 @@ from dataclasses import dataclass
 la = np.linalg
 mask = np.ma
 
+# Transforms a list of points according to the given 
+# 4x4 transformation matrix using numpy.
+# Returns the transformed vertices as a list. 
+def transform_points(transf_matr, points):
+    l  = len(points)
+    np_points = np.array([element for tupl in points for element in tupl], dtype=np.float64)
+    np_points.resize(l,3)
+    np_tfm = np.array([element for tupl in transf_matr for element in tupl], dtype=np.float64)
+    np_tfm.resize(4,4)
+    np_retval = np.transpose((np_tfm @ np.pad(np_points.T, ((0,1), (0,0)), 'constant', constant_values=(1)))[0:3,:])
+    retval = []
+    for i in range(np_retval.shape[0]):
+        retval.append(np_retval[i,:])
+    return retval
+
 def get_points_in_object(context, tree_data, temp_name="temp_part_sys"):
     """
     Returns points within mesh.
@@ -62,7 +77,8 @@ def quick_hull(points):
     
     Keyword arguments: 
         points : numpy.array 
-            Numpy array with structe [set, point, index/members (4D)]
+            Numpy array with structe [set, point, members/index (4D)]
     """
-    # TODO: Implement parallelized QuickHull algorithm
-    pass
+    ind = np.lexsort((points[:,:,0],points[:,:,1],points[:,:,2]))
+    print(ind)
+    print(points)
