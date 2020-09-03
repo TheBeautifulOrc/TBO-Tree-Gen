@@ -174,7 +174,11 @@ def quick_hull(points):
     ind = np.lexsort((points[:,:,2],points[:,:,1],points[:,:,0]))
     for r, row in enumerate(ind):
         points[r] = points[r,row]
+<<<<<<< HEAD
     # Track which points are allready part of the conves hulls
+=======
+    Track which points are allready part of the conves hulls
+>>>>>>> b6676e3d748c17b46a51035d69d82ade1fd2b55c
     part_of_hull = np.full((points.shape[:-1]), False, dtype=bool)
     part_of_hull[np.isnan(points[:,:,0])] = True    # np.nan does not need to become part of the hull
     # Geometric middle of each pointset
