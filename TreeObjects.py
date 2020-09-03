@@ -383,8 +383,8 @@ class Tree_Object:
         for key, val in limb_in_joint_dict.items():
             hull_inds.append([raw_index_list[v]*4+i for v in val[1:] for i in range(4)])
             #TODO: find out why val is empty in some seeds
-            end_of_first_entry = (raw_index_list[val[0]+1] - 1) * 4
-            hull_inds[-1].extend([end_of_first_entry+i for i in range(4)])
+            first_entry = (raw_index_list[val[0]+1] - 1) * 4 if key > 0 else (raw_index_list[val[0]]) * 4
+            hull_inds[-1].extend([first_entry+i for i in range(4)])
         # Store as numpy array for easier handling
         hull_inds = \
             np.array(list(itertools.zip_longest(*hull_inds, fillvalue=-1)), dtype=np.int).transpose()
@@ -421,6 +421,8 @@ class Tree_Object:
                                  angle_shape_threshold=45.0)
         # Delete unecessary faces
         bmesh.ops.delete(bm, geom=faces_to_delete, context="FACES_ONLY")
+        # Fill holes 
+        # bmesh.ops.holes_fill(bm, edges=[edge for edge in bm.edges], sides=4)
         # Recalculate normals
         bmesh.ops.recalc_face_normals(bm, faces=[face for face in bm.faces])
         # Overwrite object-mesh
