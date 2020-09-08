@@ -2,12 +2,15 @@
 
 import bpy
 import bmesh
+
 import numpy as np
 import math 
+import itertools
 
-from .TreeNodes import Tree_Node, Tree_Node_Container
 from mathutils import Vector
 from dataclasses import dataclass
+
+from .TreeNodes import Tree_Node, Tree_Node_Container
 
 la = np.linalg
 mask = np.ma
@@ -102,7 +105,7 @@ def quick_hull(points):
     """
     Generates convex hulls.
     
-    Generates convex hulls around all given sets of points. 
+    Generates convex hulls in 3D space around all given sets of points. 
     
     Keyword arguments: 
         points : numpy.array 
@@ -126,14 +129,15 @@ def quick_hull(points):
         """
         line_points = line_points[:,:,:-1]
         test_points = test_points[:,:,:-1]
+        n_sets, n_points = test_points.shape[:-1]
         n = line_points[:,1] - line_points[:,0]
         n /= la.norm(n, 2, -1, keepdims=True)
         diff = test_points - np.repeat(line_points[:,0], test_points.shape[1], axis=0).reshape(test_points.shape)
         term_1 = np.einsum('spm,sm->sp',diff,n)
-        dist = np.abs(diff - np.einsum('sp,sm->spm',term_1,n))
-        dist = la.norm(dist, 2, -1, keepdims=True)
-        return dist      
-    def dist_to_plane(plane_points, test_points, ref_points):
+        dists = np.abs(diff - np.einsum('sp,sm->spm',term_1,n))
+        dists = la.norm(dists, 2, -1, keepdims=True).reshape(n_sets,n_points)
+        return dists      
+    def dist_to_plane(plane_points, test_points, ref_points=None):
         """
         Calculates the distance between planes and a sets of points.
         
@@ -145,7 +149,7 @@ def quick_hull(points):
                 Points that define the plane
             test_points : np.array [set, point, member/index(4D)]
                 Points whose distance to the line shall be calculated
-            ref_points : np.array [set, point, member(3D)]
+            ref_points (optional) : np.array [set, member(3D)]
                 Reference points defining which direction is to be considered negative
         Return value:
             Numpy array containing the distance of each point to it's respective plane.
@@ -161,54 +165,100 @@ def quick_hull(points):
         plane_vecs = plane_points[:,:,1:] - np.repeat(plane_points[:,:,0], 2, axis=-2).reshape(n_sets,-1,2,3)
         plane_normals = np.cross(plane_vecs[:,:,0], plane_vecs[:,:,1])
         plane_normals /= la.norm(plane_normals, 2, -1, keepdims=True)
-        # Signs with which the final distances will be multiplied 
-        signs = np.sign(np.einsum('stm,stm->st', 
-                                  (np.repeat(ref_points, n_planes, axis=-2).reshape(n_sets, n_planes, 3) - plane_points[:,:,0]), 
-                                  plane_normals))
         diff = np.repeat(test_points, n_planes, axis=0).reshape(n_sets, n_planes, n_test_points, 3) \
             - np.repeat(plane_points[:,:,0], n_test_points, axis=-2).reshape(n_sets, n_planes, n_test_points, 3)
-        dists = np.einsum('stpm,spm->stp', diff, plane_normals)
-        dists *= np.repeat(signs, n_test_points, axis=-1).reshape(dists.shape)
+        dists = np.einsum('stpm,stm->stp', diff, plane_normals)
+        # Signs with which the final distances will be multiplied 
+        if ref_points is not None:
+            signs = -np.sign(np.einsum('stm,stm->st', 
+                                    (np.repeat(ref_points, n_planes, axis=-2).reshape(n_sets, n_planes, 3) - plane_points[:,:,0]), 
+                                    plane_normals))
+            dists *= np.repeat(signs, n_test_points, axis=-1).reshape(dists.shape)
         return dists
+    # Remove sets with only one square, as they can not have a "hull"
+    n_nan = np.count_nonzero(np.isnan(points[:,:,0]), axis=-1)
+    n_valid = points.shape[-2] - n_nan
+    points = points[np.greater(n_valid, 4)]
+    n_sets, n_points = points.shape[:-1]
+    # Start of algorithm by finding two most left and right points 
     # Sort points by x,y,z coordinates 
-    ind = np.lexsort((points[:,:,2],points[:,:,1],points[:,:,0]))
-    for r, row in enumerate(ind):
+    lex_ind = np.lexsort((points[:,:,2],points[:,:,1],points[:,:,0]))
+    for r, row in enumerate(lex_ind):
         points[r] = points[r,row]
-    # Track which points are allready part of the conves hulls 
+    # Track which points are allready part of the conves hulls
     part_of_hull = np.full((points.shape[:-1]), False, dtype=bool)
     part_of_hull[np.isnan(points[:,:,0])] = True    # np.nan does not need to become part of the hull
-    # Geometric middle of each pointset
-    middlepoints = np.nanmean(points[:,:,:-1], axis=-2, keepdims=False)
     # Take extremepoints of each set as first points of convex hull
     first, last = get_first_last_inds(points[:,:,0])
-    # Mark as part of hull
-    part_of_hull[first[:,0], first[:,1]] = True
-    part_of_hull[last[:,0], last[:,1]] = True
-    # Find point most distant to the line between the extremepoints 
     first_points = points[first[:,0],first[:,1]]
     last_points = points[last[:,0],last[:,1]]
+    # Initial lines
     line_points = np.concatenate((first_points, last_points), axis=-1).reshape(-1,2,4)
+    # Mark line points as part of hull
+    part_of_hull[first[:,0], first[:,1]] = True
+    part_of_hull[last[:,0], last[:,1]] = True
+    # Find the point most distant to this line 
     dists = dist_to_line(line_points, points)
-    dist_sort = np.argsort(-dists, axis=-2)
-    # Use as next point of convex hull
-    new_p_inds = dist_sort[:,0]
-    new_p_inds = np.concatenate(
-        (np.arange(new_p_inds.shape[0], dtype=np.int64).reshape(-1,1), 
-         new_p_inds), axis=-1)
-    part_of_hull[new_p_inds[:,0], new_p_inds[:,1]] = True
-    new_points = points[new_p_inds[:,0], new_p_inds[:,1]]
-    # Create first triangles
-    triangles = np.concatenate((first_points, last_points, new_points), axis=-1).reshape(-1,1,3,4)
+    sorted_inds = np.argsort(-dists, axis=-1)
+    # Use third point as part of convex hull
+    third_point_inds = sorted_inds[:,0].reshape(-1,1)
+    third_point_inds = np.concatenate((np.arange(n_sets, dtype=np.int64).reshape(-1,1), third_point_inds), axis=-1)
+    part_of_hull[third_point_inds[:,0], third_point_inds[:,1]] = True
+    third_points = points[third_point_inds[:,0], third_point_inds[:,1]]
+    # Generate first set of triangles 
+    # Triangles are stored in shape: [set, triangle, point, members/index (4D)]
+    triangles = np.concatenate((line_points.reshape(-1,8), third_points), axis=-1).reshape(-1,1,3,4)
+    # Find fourth point using the same method
+    dists = np.abs(dist_to_plane(triangles, points))
+    sorted_inds = np.argsort(-dists, axis=-1)
+    fourth_point_inds = sorted_inds[:,:,0].reshape(-1,1)
+    fourth_point_inds = np.concatenate((np.arange(n_sets, dtype=np.int64).reshape(-1,1), fourth_point_inds), axis=-1)
+    part_of_hull[fourth_point_inds[:,0], fourth_point_inds[:,1]] = True
+    fourth_points = points[fourth_point_inds[:,0], fourth_point_inds[:,1]]
+    new_triangles = np.concatenate((np.concatenate((fourth_points, triangles[:,0,0], triangles[:,0,1]), axis=1),
+                                    np.concatenate((fourth_points, triangles[:,0,1], triangles[:,0,2]), axis=1),
+                                    np.concatenate((fourth_points, triangles[:,0,2], triangles[:,0,0]), axis=1)),
+                                   axis=1).reshape(n_sets, 3, 3, 4)
+    triangles = np.concatenate((triangles, new_triangles), axis=1)
+    # Geometric middle of each initial convex hull
+    middlepoints = np.nanmean(np.nanmean(triangles[:,:,:,:-1], axis=-2), axis=-2)
     # Reiterate until all points are part of the convex hull
     while(~np.all(part_of_hull)):
+        # Create new triangle array
+        new_triangles = [[] for _ in range(n_sets)]
+        # Calculate distance from each point within a set to each triangle whithin the same set
         dists = dist_to_plane(triangles, points, middlepoints)
-        sorted_inds = np.argsort(-dists)
-        for s, pointset in enumerate(sorted_inds):
-            for t, triangle in enumerate(pointset):
-                pass
-        break
+        sorted_inds = np.argsort(np.negative(dists))
+        # Triangles with only negative, zero-ish or np.nan distances to points can not be part of the algorithm 
+        points_below_triangle = np.logical_or(np.isclose(dists, 0), dists < 0)   # Is a distance negative (or close to zero)
+        points_isnan = np.isnan(dists)   # Is a distance np.nan
+        points_valid = ~np.logical_or(points_below_triangle, points_isnan) # If both are false, the point is valid
+        n_triangles = triangles.shape[1]    # Current maximum number of triangles in one set
+        for s in range(n_sets): # For each set 
+            for t in range(n_triangles):    # For each triangle
+                new_point = None    # Variable for next point to be integrated into the convex hull
+                n_val_points = np.count_nonzero(points_valid[s,t])  # Count valid point above this triangle
+                curr_inds = sorted_inds[s,t]
+                for p in range(n_val_points):   # For each valid point p
+                    ind = curr_inds[p]
+                    if not part_of_hull[s,ind]: # If not already part of convex hull
+                        part_of_hull[s,ind] = True  # Mark as part of hull
+                        new_point = points[s,ind]   # Store as next point to be integrated
+                        break   # Don't check any more points
+                old_points = triangles[s,t]         # Get the points of the late triangle
+                if new_point is not None:   # If a new candidate for integration was found above this triangle
+                    # Replace the old triangle with three new triangles, connecting the old points with the new point      
+                    new_triangles[s].extend([np.array(([old_points[0], old_points[1], new_point])),
+                                             np.array(([old_points[1], old_points[2], new_point])),
+                                             np.array(([old_points[0], old_points[2], new_point]))])
+                else:
+                    new_triangles[s].append(old_points) # Just keep the old triangle
+        new_n_tri = max([len(e) for e in new_triangles])
+        triangles = np.full((n_sets, new_n_tri, 3, 4), np.nan)
+        for s, pointset in enumerate(new_triangles):
+            triangles[s,:len(pointset)] = [e for e in pointset]
     # Convert triangles into edges 
-    
+    # triangles = triangles[:,:,:,-1]
     # Delete all edges that contain np.nan or two verts of the same square
     
     # Return all edges in index-form
