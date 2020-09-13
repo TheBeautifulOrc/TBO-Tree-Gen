@@ -106,10 +106,14 @@ def quick_hull(points):
     Generates convex hulls.
     
     Generates convex hulls in 3D space around all given sets of points. 
+    Returns array of all vertices that are connected to form said convex hull. 
     
     Keyword arguments: 
         points : numpy.array 
             Numpy array with structe [set, point, members/index (4D)]
+            
+    Return value:
+        Numpy array with indices of connected vertices in one row.
     """ 
     def dist_to_line(line_points, test_points):
         """
@@ -223,7 +227,10 @@ def quick_hull(points):
     # Geometric middle of each initial convex hull
     middlepoints = np.nanmean(np.nanmean(triangles[:,:,:,:-1], axis=-2), axis=-2)
     # Reiterate until all points are part of the convex hull
+    i = 0
     while(~np.all(part_of_hull)):
+        if i == 1:
+            break
         # Create new triangle array
         new_triangles = [[] for _ in range(n_sets)]
         # Calculate distance from each point within a set to each triangle whithin the same set
@@ -257,8 +264,19 @@ def quick_hull(points):
         triangles = np.full((n_sets, new_n_tri, 3, 4), np.nan)
         for s, pointset in enumerate(new_triangles):
             triangles[s,:len(pointset)] = [e for e in pointset]
+        i += 1
     # Convert triangles into edges 
-    # triangles = triangles[:,:,:,-1]
+    triangles = triangles[:,:,:,-1] # Only look at indices
+    triangles = (triangles[~np.isnan(triangles)].reshape(-1,3))   # Remove nan entries and reshape
+    # Reorganize into edges
+    edges = np.vstack((np.hstack((triangles[:,0].reshape(-1,1), triangles[:,1].reshape(-1,1))),
+                       np.hstack((triangles[:,1].reshape(-1,1), triangles[:,2].reshape(-1,1))),
+                       np.hstack((triangles[:,2].reshape(-1,1), triangles[:,0].reshape(-1,1)))))
     # Delete all edges that contain np.nan or two verts of the same square
-    
-    # Return all edges in index-form
+    div_edges = (edges / 4).astype(np.int64)
+    valid_edges = np.not_equal(div_edges[:,0], div_edges[:,1])
+    edges = edges[valid_edges].astype(np.int64)
+    # Delete double edges 
+    edges = np.unique(np.sort(edges, axis=-1), axis=0)
+    # Return all edges
+    return edges

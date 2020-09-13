@@ -402,29 +402,34 @@ class Tree_Object:
             faces_to_delete.append(del_face)
         faces_to_delete = list(set(faces_to_delete))    # Remove duplicates 
         faces_to_delete = [face_id_dict[e] for e in faces_to_delete]    # Turn IDs back into faces
+        # Delete unecessary faces
+        bmesh.ops.delete(bm, geom=faces_to_delete, context="FACES_ONLY")
         # Create convex hulls around the joints
         hull_verts = np.array([[c for c in bm.verts[e].co] if e != -1 else [np.nan, np.nan, np.nan] 
                       for e in hull_inds.reshape(-1)]).reshape((hull_inds.shape[0], -1, 3))
         hull_inds = hull_inds.astype(np.float64)
         hull_inds[np.isclose(hull_inds, -1.0)] = np.nan
         hull_verts = np.concatenate((hull_verts, hull_inds.reshape((hull_inds.shape[0], -1, 1))), axis=-1)
-        quick_hull(hull_verts)
-        # Join triangles 
-        bmesh.ops.join_triangles(bm, 
-                                 faces=[face for face in bm.faces], 
-                                 cmp_seam=False,
-                                 cmp_sharp=False,
-                                 cmp_uvs=False,
-                                 cmp_vcols=False,
-                                 cmp_materials=False,
-                                 angle_face_threshold=45.0,
-                                 angle_shape_threshold=45.0)
-        # Delete unecessary faces
-        bmesh.ops.delete(bm, geom=faces_to_delete, context="FACES_ONLY")
+        hull_edge_inds = quick_hull(hull_verts)
+        for edge_inds in hull_edge_inds:
+            bm.edges.new((bm.verts[edge_inds[0]], bm.verts[edge_inds[1]]))
         # Fill holes 
-        # bmesh.ops.holes_fill(bm, edges=[edge for edge in bm.edges], sides=4)
+        # bmesh.ops.contextual_create(bm, 
+                                    # geom=[edge for edge in bm.edges], 
+                                    # mat_nr=0,
+                                    # use_smooth=False)
+        # Join triangles 
+        # bmesh.ops.join_triangles(bm, 
+        #                          faces=[face for face in bm.faces], 
+        #                          cmp_seam=False,
+        #                          cmp_sharp=False,
+        #                          cmp_uvs=False,
+        #                          cmp_vcols=False,
+        #                          cmp_materials=False,
+        #                          angle_face_threshold=45.0,
+        #                          angle_shape_threshold=45.0)
         # Recalculate normals
-        bmesh.ops.recalc_face_normals(bm, faces=[face for face in bm.faces])
+        # bmesh.ops.recalc_face_normals(bm, faces=[face for face in bm.faces])
         # Overwrite object-mesh
         bm.to_mesh(self.bl_object.data)
         bm.free()
