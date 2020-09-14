@@ -101,11 +101,94 @@ def get_first_last_inds(arr):
         last_indices[elem_l[0]] = elem_l
     return first_indices, last_indices
 
+def dist_to_line(line_points, test_points):
+    """
+    Calculates the distance between lines and a sets of points.
+    
+    Calculates the minimum distance between lines and sets of points. 
+    The lines are defined by two points each that are part of the respective line.
+    
+    Keyword arguments:
+        line_points : np.array [set, point, member/index(4D)]
+            Points that define the line
+        test_points : np.array [set, point, member/index(4D)]
+            Points whose distance to the line shall be calculated
+
+    Return value:
+        Numpy array containing the distance of each point to it's respective line.
+    """
+    line_points = line_points[:,:,:-1]
+    test_points = test_points[:,:,:-1]
+    n_sets, n_points = test_points.shape[:-1]
+    n = line_points[:,1] - line_points[:,0]
+    n /= la.norm(n, 2, -1, keepdims=True)
+    diff = test_points - np.repeat(line_points[:,0], test_points.shape[1], axis=0).reshape(test_points.shape)
+    term_1 = np.einsum('spm,sm->sp',diff,n)
+    dists = np.abs(diff - np.einsum('sp,sm->spm',term_1,n))
+    dists = la.norm(dists, 2, -1, keepdims=True).reshape(n_sets,n_points)
+    return dists   
+   
+def dist_to_plane(plane_points, test_points, ref_points=None):
+    """
+    Calculates the distance between planes and a sets of points.
+    
+    Calculates the minimum distance between planes and sets of points. 
+    The planes are defined by three points each that are part of the respective plane.
+    
+    Keyword arguments:
+        plane_points : np.array [set, plane, point, member/index(4D)]
+            Points that define the plane
+        test_points : np.array [set, point, member/index(4D)]
+            Points whose distance to the line shall be calculated
+        ref_points (optional) : np.array [set, member(3D)]
+            Reference points defining which direction is to be considered negative
+    Return value:
+        Numpy array containing the distance of each point to it's respective plane.
+    """
+    # Remove indices from points
+    plane_points = plane_points[:,:,:,:-1]
+    test_points = test_points[:,:,:-1]
+    # Dimensions of this calculation
+    n_sets = plane_points.shape[0]
+    n_planes = plane_points.shape[1]
+    n_test_points = test_points.shape[1]
+    # Parametric vectors of each plane
+    plane_vecs = plane_points[:,:,1:] - np.repeat(plane_points[:,:,0], 2, axis=-2).reshape(n_sets,-1,2,3)
+    plane_normals = np.cross(plane_vecs[:,:,0], plane_vecs[:,:,1])
+    plane_normals /= la.norm(plane_normals, 2, -1, keepdims=True)
+    diff = np.repeat(test_points, n_planes, axis=0).reshape(n_sets, n_planes, n_test_points, 3) \
+        - np.repeat(plane_points[:,:,0], n_test_points, axis=-2).reshape(n_sets, n_planes, n_test_points, 3)
+    dists = np.einsum('stpm,stm->stp', diff, plane_normals)
+    # Signs with which the final distances will be multiplied 
+    if ref_points is not None:
+        signs = -np.sign(np.einsum('stm,stm->st', 
+                                (np.repeat(ref_points, n_planes, axis=-2).reshape(n_sets, n_planes, 3) - plane_points[:,:,0]), 
+                                plane_normals))
+        dists *= np.repeat(signs, n_test_points, axis=-1).reshape(dists.shape)
+    return dists
+
+def get_triangle_edges(triangles):
+    """
+    Returns edges of passed triangles.
+    
+    Keyword arguments:
+        triangles : numpy.array
+            Numpy array of structure [set, triangle, vertex(3), members]
+    
+    Return value:
+        Numpy array of structure [set, triangle, edge(3), point(2), members]
+    """
+    ts = triangles.shape
+    edges = [[tri[0], tri[1], tri[1], tri[2], tri[2], tri[0]] for t_set in triangles for tri in t_set]
+    edges = np.array(edges).reshape(ts[0], ts[1], 3, 2, ts[-1])
+    return edges
+
 def quick_hull(points):
     """
     Generates convex hulls.
     
     Generates convex hulls in 3D space around all given sets of points. 
+    This is accomplished by using an adapted version of the QuickHull algorithm.
     Returns array of all vertices that are connected to form said convex hull. 
     
     Keyword arguments: 
@@ -114,76 +197,12 @@ def quick_hull(points):
             
     Return value:
         Numpy array with indices of connected vertices in one row.
-    """ 
-    def dist_to_line(line_points, test_points):
-        """
-        Calculates the distance between lines and a sets of points.
-        
-        Calculates the minimum distance between lines and sets of points. 
-        The lines are defined by two points each that are part of the respective line.
-        
-        Keyword arguments:
-            line_points : np.array [set, point, member/index(4D)]
-                Points that define the line
-            test_points : np.array [set, point, member/index(4D)]
-                Points whose distance to the line shall be calculated
-
-        Return value:
-            Numpy array containing the distance of each point to it's respective line.
-        """
-        line_points = line_points[:,:,:-1]
-        test_points = test_points[:,:,:-1]
-        n_sets, n_points = test_points.shape[:-1]
-        n = line_points[:,1] - line_points[:,0]
-        n /= la.norm(n, 2, -1, keepdims=True)
-        diff = test_points - np.repeat(line_points[:,0], test_points.shape[1], axis=0).reshape(test_points.shape)
-        term_1 = np.einsum('spm,sm->sp',diff,n)
-        dists = np.abs(diff - np.einsum('sp,sm->spm',term_1,n))
-        dists = la.norm(dists, 2, -1, keepdims=True).reshape(n_sets,n_points)
-        return dists      
-    def dist_to_plane(plane_points, test_points, ref_points=None):
-        """
-        Calculates the distance between planes and a sets of points.
-        
-        Calculates the minimum distance between planes and sets of points. 
-        The planes are defined by three points each that are part of the respective plane.
-        
-        Keyword arguments:
-            plane_points : np.array [set, plane, point, member/index(4D)]
-                Points that define the plane
-            test_points : np.array [set, point, member/index(4D)]
-                Points whose distance to the line shall be calculated
-            ref_points (optional) : np.array [set, member(3D)]
-                Reference points defining which direction is to be considered negative
-        Return value:
-            Numpy array containing the distance of each point to it's respective plane.
-        """
-        # Remove indices from points
-        plane_points = plane_points[:,:,:,:-1]
-        test_points = test_points[:,:,:-1]
-        # Dimensions of this calculation
-        n_sets = plane_points.shape[0]
-        n_planes = plane_points.shape[1]
-        n_test_points = test_points.shape[1]
-        # Parametric vectors of each plane
-        plane_vecs = plane_points[:,:,1:] - np.repeat(plane_points[:,:,0], 2, axis=-2).reshape(n_sets,-1,2,3)
-        plane_normals = np.cross(plane_vecs[:,:,0], plane_vecs[:,:,1])
-        plane_normals /= la.norm(plane_normals, 2, -1, keepdims=True)
-        diff = np.repeat(test_points, n_planes, axis=0).reshape(n_sets, n_planes, n_test_points, 3) \
-            - np.repeat(plane_points[:,:,0], n_test_points, axis=-2).reshape(n_sets, n_planes, n_test_points, 3)
-        dists = np.einsum('stpm,stm->stp', diff, plane_normals)
-        # Signs with which the final distances will be multiplied 
-        if ref_points is not None:
-            signs = -np.sign(np.einsum('stm,stm->st', 
-                                    (np.repeat(ref_points, n_planes, axis=-2).reshape(n_sets, n_planes, 3) - plane_points[:,:,0]), 
-                                    plane_normals))
-            dists *= np.repeat(signs, n_test_points, axis=-1).reshape(dists.shape)
-        return dists
+    """
     # Remove sets with only one square, as they can not have a "hull"
     n_nan = np.count_nonzero(np.isnan(points[:,:,0]), axis=-1)
     n_valid = points.shape[-2] - n_nan
     points = points[np.greater(n_valid, 4)]
-    n_sets, n_points = points.shape[:-1]
+    n_sets = points.shape[0]
     # Start of algorithm by finding two most left and right points 
     # Sort points by x,y,z coordinates 
     lex_ind = np.lexsort((points[:,:,2],points[:,:,1],points[:,:,0]))
@@ -226,11 +245,10 @@ def quick_hull(points):
     triangles = np.concatenate((triangles, new_triangles), axis=1)
     # Geometric middle of each initial convex hull
     middlepoints = np.nanmean(np.nanmean(triangles[:,:,:,:-1], axis=-2), axis=-2)
+    
     # Reiterate until all points are part of the convex hull
-    i = 0
+    n_points = triangles.shape[0]
     while(~np.all(part_of_hull)):
-        if i == 1:
-            break
         # Create new triangle array
         new_triangles = [[] for _ in range(n_sets)]
         # Calculate distance from each point within a set to each triangle whithin the same set
@@ -263,20 +281,19 @@ def quick_hull(points):
         new_n_tri = max([len(e) for e in new_triangles])
         triangles = np.full((n_sets, new_n_tri, 3, 4), np.nan)
         for s, pointset in enumerate(new_triangles):
-            triangles[s,:len(pointset)] = [e for e in pointset]
-        i += 1
+            triangles[s,:len(pointset)] = [e for e in pointset] 
+    
     # Convert triangles into edges 
     triangles = triangles[:,:,:,-1] # Only look at indices
-    triangles = (triangles[~np.isnan(triangles)].reshape(-1,3))   # Remove nan entries and reshape
+    triangles = (triangles[~np.isnan(triangles)].reshape(1,-1,3,1))   # Remove nan entries and reshape
     # Reorganize into edges
-    edges = np.vstack((np.hstack((triangles[:,0].reshape(-1,1), triangles[:,1].reshape(-1,1))),
-                       np.hstack((triangles[:,1].reshape(-1,1), triangles[:,2].reshape(-1,1))),
-                       np.hstack((triangles[:,2].reshape(-1,1), triangles[:,0].reshape(-1,1)))))
+    edges = get_triangle_edges(triangles).reshape(-1,2)
     # Delete all edges that contain np.nan or two verts of the same square
     div_edges = (edges / 4).astype(np.int64)
     valid_edges = np.not_equal(div_edges[:,0], div_edges[:,1])
     edges = edges[valid_edges].astype(np.int64)
     # Delete double edges 
-    edges = np.unique(np.sort(edges, axis=-1), axis=0)
+    edges = np.sort(edges, axis=-1)
+    edges = np.unique(edges, axis=0)
     # Return all edges
     return edges
