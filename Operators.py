@@ -1,11 +1,9 @@
 # Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
 
 import bpy
-import bmesh
-import numpy as np
 import mathutils
-import math
-import os 
+# Debug
+import os
 import time
 
 from bpy.types import Operator
@@ -46,7 +44,8 @@ class CreateTree(Operator):
         f = open("/tmp/log.txt", 'w')
         f.write("Debug Info:\n")
         t_start = time.perf_counter()
-        # general-purpose variables
+        
+        # General purpose variables
         sel = context.selected_objects  # All objects that shall become a tree
         act = context.active_object
         tree_data = context.scene.tbo_treegen_data

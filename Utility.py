@@ -6,6 +6,7 @@ import bmesh
 import numpy as np
 import math 
 import itertools
+import numba
 
 from mathutils import Vector
 from dataclasses import dataclass

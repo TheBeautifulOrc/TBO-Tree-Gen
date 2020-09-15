@@ -29,9 +29,8 @@ if "bpy" in locals():
     importlib.reload(TreeObjects)
     from . import Operators
     importlib.reload(Operators)
-else:
-    from . import Operators
-    from . import Panels
+    from . import PackageHandler
+    importlib.reload(PackageHandler)
 
 classes = (
     TreeProperties.TreeProperties, 
@@ -48,6 +47,11 @@ def register():
     for cl in classes:
         bpy.utils.register_class(cl)
     bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)
+    user_site_added = PackageHandler.add_user_site()
+    PackageHandler.enable_pip()
+    PackageHandler.install_module("numba")
+    if not user_site_added:
+        PackageHandler.add_user_site()
 
 def unregister():
     for cl in reversed(classes):
