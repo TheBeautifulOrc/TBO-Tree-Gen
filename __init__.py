@@ -49,7 +49,12 @@ def register():
     bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)
     user_site_added = PackageHandler.add_user_site()
     PackageHandler.enable_pip()
-    PackageHandler.install_module("numba")
+    modules = [
+        "numba",    # Enables JIT-compilation of Python code
+        "scipy",    # Makes it possible for numba to optimize some numpy functions
+        ]
+    for module in modules:
+        PackageHandler.install_module(module)
     if not user_site_added:
         PackageHandler.add_user_site()
 
