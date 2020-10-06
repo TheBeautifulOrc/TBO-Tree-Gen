@@ -6,12 +6,11 @@ import bmesh
 import numpy as np
 import math 
 import itertools
-import numba
 
 from mathutils import Vector
 from dataclasses import dataclass
 
-from .TreeNodes import Tree_Node, Tree_Node_Container
+from .TreeNodes import TreeNode, TreeNodeContainer
 
 la = np.linalg
 mask = np.ma

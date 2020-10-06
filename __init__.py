@@ -5,7 +5,7 @@ bl_info = {
     "author" : "Luai \"TheBeautifulOrc\" Malek",
     "description" : "",
     "blender" : (2, 80, 0),
-    "version" : (0, 8, 2),
+    "version" : (0, 8, 5),
     "location" : "3DView",
     "warning" : "",
     "category" : "Add Mesh" 
@@ -15,8 +15,17 @@ import bpy
 import math
 from bpy.props import PointerProperty
 
+modules = [
+    "numba",    # JIT-compiler for faster code execution
+    "scipy",    # Additional geometry functions
+    ]
+
 if "bpy" in locals():
     import importlib
+    from . import PackageHandler
+    importlib.reload(PackageHandler)
+    # Check for dependencies and install if necessary
+    PackageHandler.handle_packages(modules)
     from . import TreeProperties
     importlib.reload(TreeProperties)
     from . import Utility
@@ -25,12 +34,12 @@ if "bpy" in locals():
     importlib.reload(Panels)
     from . import TreeNodes
     importlib.reload(TreeNodes)
+    from . import SpaceColonialization
+    importlib.reload(SpaceColonialization)
     from . import TreeObjects
     importlib.reload(TreeObjects)
     from . import Operators
     importlib.reload(Operators)
-    from . import PackageHandler
-    importlib.reload(PackageHandler)
 
 classes = (
     TreeProperties.TreeProperties, 
@@ -47,16 +56,8 @@ def register():
     for cl in classes:
         bpy.utils.register_class(cl)
     bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)
-    user_site_added = PackageHandler.add_user_site()
-    PackageHandler.enable_pip()
-    modules = [
-        "numba",    # Enables JIT-compilation of Python code
-        "scipy",    # Makes it possible for numba to optimize some numpy functions
-        ]
-    for module in modules:
-        PackageHandler.install_module(module)
-    if not user_site_added:
-        PackageHandler.add_user_site()
+    # Check for dependencies and install if necessary
+    PackageHandler.handle_packages(modules)
 
 def unregister():
     for cl in reversed(classes):

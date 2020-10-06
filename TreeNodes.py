@@ -4,13 +4,14 @@ import bpy
 import math
 import mathutils
 
-from mathutils import Vector
+import numpy as np
+
 from dataclasses import dataclass, field
 from typing import List
 from collections import defaultdict
 
 @dataclass
-class Tree_Node:
+class TreeNode:
     """
     Data-collection used to store geometry information of an unfinished tree.
     
@@ -19,7 +20,7 @@ class Tree_Node:
     for one of these nodes. 
     
     Attributes: 
-        location : mathutils.Vector
+        location : np.array
             Location of this node in 3D-space
         parent_object : bpy.types.Object 
             Blender object that will become the tree that this node is part of 
@@ -30,13 +31,13 @@ class Tree_Node:
         child_indices : list(int)
             Indices of all nodes that are children of this node 
     """
-    location : Vector
+    location : np.array
     parent_object : bpy.types.Object
     weight : int = 1
     weight_factor : float = 0.0
     child_indices : List[int] = field(default_factory=list)
     
-class Tree_Node_Container(list):
+class TreeNodeContainer(list):
     """
     Collection of many Tree_Nodes.
     
