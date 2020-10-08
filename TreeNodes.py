@@ -3,6 +3,7 @@
 import bpy
 import math
 import mathutils
+from mathutils import Vector
 
 import numpy as np
 
@@ -39,7 +40,7 @@ class TreeNode:
     
 class TreeNodeContainer(list):
     """
-    Collection of many Tree_Nodes.
+    Collection of many TreeNodes.
     
     During the growth of trees this container is used to keep track 
     of all the nodes that are generated during the process. 
@@ -177,7 +178,7 @@ class TreeNodeContainer(list):
             if n_vec.length < math.sqrt(2):
                 n_vec = (corr[key][0] - loc).normalized()
             # Create child node
-            new_nodes.append(Tree_Node((loc + D * n_vec.normalized()), parent_node.parent_object))
+            new_nodes.append(TreeNode((loc + D * n_vec.normalized()), parent_node.parent_object))
         self.extend(new_nodes)
         for p in kill:
             p_attr.remove(p)
@@ -192,9 +193,9 @@ class TreeNodeContainer(list):
                 Object whose children shall be returned
             
         Return value:
-            Tree_Node_Container containing all nodes that have obj as parent
+            TreeNodeContainer containing all nodes that have obj as parent
         """
-        separate_nodes = Tree_Node_Container()
+        separate_nodes = TreeNodeContainer()
         corr = {}
         corr_counter = 0
         for i, node in enumerate(self):

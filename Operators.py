@@ -8,8 +8,8 @@ import time
 
 from bpy.types import Operator
 from mathutils import Vector
-from .TreeNodes import Tree_Node, Tree_Node_Container
-from .TreeObjects import Tree_Object
+from .TreeNodes import TreeNode, TreeNodeContainer
+from .TreeObjects import TreeObject
 from .Utility import get_points_in_object
 
 class CreateTree(Operator):
@@ -58,7 +58,7 @@ class CreateTree(Operator):
         # for each new vertex that will be created later on. It aditionally 
         # stores information like the branching depth, and the parenthood 
         # relationships between nodes.
-        all_tree_nodes = Tree_Node_Container()
+        all_tree_nodes = TreeNodeContainer()
         # Setup kd-tree of attraction points
         kdt_p_attr = mathutils.kdtree.KDTree(tree_data.n_p_attr)
         for i, p in enumerate(p_attr):
@@ -71,8 +71,8 @@ class CreateTree(Operator):
         # attraction points before the regular algorithm can be performed. 
         for tree_obj in sel:
             # Create a new list with one root node
-            tree_nodes = Tree_Node_Container()
-            tree_nodes.append(Tree_Node(tree_obj.location, tree_obj))
+            tree_nodes = TreeNodeContainer()
+            tree_nodes.append(TreeNode(tree_obj.location, tree_obj))
             dist = kdt_p_attr.find(tree_obj.location)[2]
             while (dist > tree_data.sc_d_i * tree_data.sc_D and tree_data.sc_d_i != 0):
                 d_i = dist + tree_data.sc_d_i * tree_data.sc_D   # Adjust the attr. point influence so the stem can grow
@@ -90,10 +90,10 @@ class CreateTree(Operator):
             else:
                 something_new = all_tree_nodes.iterate_growth(p_attr, tree_data)
                 its += 1
-        
+        print(len(all_tree_nodes))
         ### Separate trees
         sorted_trees = []
-        sorted_trees.extend([Tree_Object(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])
+        sorted_trees.extend([TreeObject(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])
         
         for tree in sorted_trees:
             ### Calculate weights

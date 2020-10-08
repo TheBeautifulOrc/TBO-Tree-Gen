@@ -12,28 +12,28 @@ from collections import defaultdict
 from mathutils import Vector
 import itertools
 
-from .TreeNodes import Tree_Node, Tree_Node_Container
+from .TreeNodes import TreeNode, TreeNodeContainer
 from .TreeProperties import TreeProperties
 from .Utility import transform_points, quick_hull
         
-class Tree_Object:
+class TreeObject:
     """
     Class used to combine all relevant data to create the trees mesh.
     
     In order to finalize a tree and create it's mesh in Blender this class 
-    combines the data of a Tree_Node container and the corresponding Blender 
+    combines the data of a TreeNodecontainer and the corresponding Blender 
     object in addition to the TreeProperties variable. 
     """
     def __init__(self, 
                  bl_object : bpy.types.Object, 
-                 nodes : Tree_Node_Container, 
+                 nodes : TreeNodeContainer, 
                  tree_data : TreeProperties):
         """Constructor.
         
         Keyword arguments:
             bl_object : bpy.types.Object 
                 Blender object that will become a tree
-            nodes : Tree_Node_Container
+            nodes : TreeNodeContainer
                 Nodes that make up this tree
             tree_data : TreeProperties 
                 List of all properties of the tree that is being worked on

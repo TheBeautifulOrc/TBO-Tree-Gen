@@ -28,14 +28,14 @@ if "bpy" in locals():
     PackageHandler.handle_packages(modules)
     from . import TreeProperties
     importlib.reload(TreeProperties)
+    from . import TreeNodes
+    importlib.reload(TreeNodes)
     from . import Utility
     importlib.reload(Utility)
     from . import Panels
     importlib.reload(Panels)
-    from . import TreeNodes
-    importlib.reload(TreeNodes)
-    from . import SpaceColonialization
-    importlib.reload(SpaceColonialization)
+    # from . import SpaceColonialization
+    # importlib.reload(SpaceColonialization)
     from . import TreeObjects
     importlib.reload(TreeObjects)
     from . import Operators
