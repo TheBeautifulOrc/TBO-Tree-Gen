@@ -17,7 +17,6 @@ from bpy.props import PointerProperty
 
 modules = [
     "numba",    # JIT-compiler for faster code execution
-    "scipy",    # Additional geometry functions
     ]
 
 if "bpy" in locals():
@@ -34,8 +33,6 @@ if "bpy" in locals():
     importlib.reload(Utility)
     from . import Panels
     importlib.reload(Panels)
-    # from . import SpaceColonialization
-    # importlib.reload(SpaceColonialization)
     from . import TreeObjects
     importlib.reload(TreeObjects)
     from . import Operators

@@ -90,7 +90,6 @@ class CreateTree(Operator):
             else:
                 something_new = all_tree_nodes.iterate_growth(p_attr, tree_data)
                 its += 1
-        print(len(all_tree_nodes))
         ### Separate trees
         sorted_trees = []
         sorted_trees.extend([TreeObject(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])
@@ -98,18 +97,12 @@ class CreateTree(Operator):
         for tree in sorted_trees:
             ### Calculate weights
             tree.nodes.calculate_weights()
-            ### Geometry reduction
-            if tree_data.pr_enable_reduction:
-                tree.nodes.reduce_tree_nodes(tree_data)
             ### Generate mesh
             if not tree_data.pr_enable_skinning:
                 tree.generate_skeltal_mesh() # Generate skeleton
             # If not in preview-mode create mesh with volume
             else:
-                t1 = time.perf_counter()
                 tree.generate_mesh_ji_liu_wang()
-                t2 = time.perf_counter()
-                print(t2-t1)
             
         # Reset active object
         context.view_layer.objects.active = act

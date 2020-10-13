@@ -6,10 +6,13 @@ import mathutils
 from mathutils import Vector
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from dataclasses import dataclass, field
 from typing import List
 from collections import defaultdict
+
+sqrt_2 = math.sqrt(2)
 
 @dataclass
 class TreeNode:
@@ -21,7 +24,7 @@ class TreeNode:
     for one of these nodes. 
     
     Attributes: 
-        location : np.array
+        location : Vector
             Location of this node in 3D-space
         parent_object : bpy.types.Object 
             Blender object that will become the tree that this node is part of 
@@ -32,7 +35,7 @@ class TreeNode:
         child_indices : list(int)
             Indices of all nodes that are children of this node 
     """
-    location : np.array
+    location : Vector
     parent_object : bpy.types.Object
     weight : int = 1
     weight_factor : float = 0.0
@@ -46,74 +49,7 @@ class TreeNodeContainer(list):
     of all the nodes that are generated during the process. 
     After separation by tree it provides utilities to calculate 
     node weights.
-    """
-    def parent_indices(self):
-        """Returns a list of indices pointing to the parent of each node."""
-        parent_indices = [0] * len(self)  # List of parent indices
-        for i, node in enumerate(self):   # Setup parent indices
-            for c in node.child_indices:
-                parent_indices[c] = i
-        return parent_indices
-     
-    def reduce_tree_nodes(self, tree_data):
-        """
-        Reduces the amount of TreeNodes.
-        
-        Reduces the the amount of tree nodes by deleting 
-        nodes that change the overall geometry significantly.
-        
-        Keyword arguments:
-            tree_data : TreeProperties 
-                List of all properties of the tree that is being worked on
-        
-        Return value:
-            A new, reduced list of tree nodes
-        """
-        crit_angle = tree_data.vr_red_angle     # Minimum angle that needs to be preserved
-        parent_indices = self.parent_indices()
-        # TODO: Clean up the unnecessary parts of this function
-        #root_of_two = math.sqrt(2)
-        
-        def mark_pending_kill(node_index, node, parent):
-            # Replace parents connection to node with connection children
-            parent.child_indices = [c for c in parent.child_indices if c != node_index]  # Remove node's entry
-            parent.child_indices.extend([c for c in node.child_indices])    # Append child entries
-            # Replace children's reference to node with reference to parent
-            for c in node.child_indices:
-                parent_indices[c] = parent_indices[node_index]
-            self[node_index] = None    # Mark node as pending removal
-        
-        # Reduction algorithm
-        for i, node in enumerate(self[1:], 1): # Foreach node except the root node (since it always remains unchanged)
-            parent_index = parent_indices[i]
-            parent = self[parent_index]
-            
-            # clearance = (node.location - parent.location).length
-            if False: # (len(node.child_indices) > 1 and
-                #clearance < ((parent.weight_factor + node.weight_factor) * tree_data.sk_base_radius) * root_of_two):
-                mark_pending_kill(i, node, parent)
-            if False: #not tree_data.pr_enable_skinning:
-                # Only nodes with exactly one child are candidates for angle based reduction
-                if len(node.child_indices) == 1:
-                    child = self[node.child_indices[0]]
-                    vec1 = Vector(node.location - parent.location)  # Vector between node's parent and itself
-                    vec2 = Vector(child.location - parent.location) # Vector between node's parent and it's child
-                    angle = vec1.angle(vec2, 0) # Calculate the angle between those two vectors
-                    if angle < crit_angle:  # If the angle is smaller that specified, the node is not essential
-                        mark_pending_kill(i, node, parent)
-        
-        # Update correspondences
-        correspondence = {}     # Correspondences between indices before and after reduction 
-        counter_new = 0
-        for counter_old, node in enumerate(self):
-            if node is not None:
-                correspondence[counter_old] = counter_new
-                counter_new += 1
-        self[:] = [node for node in self if node is not None]   # Remove None objects from tree_nodes
-        for node in self:
-            node.child_indices = [correspondence[index] for index in node.child_indices]
-            node.child_indices = list(dict.fromkeys(node.child_indices))
-            
+    """            
     def calculate_weights(self):
         """
         Caluclates node weights. 
@@ -147,8 +83,8 @@ class TreeNodeContainer(list):
         D = tree_data.sc_D
         d_i = d_i_override if d_i_override is not None else tree_data.sc_d_i * D
         d_k = tree_data.sc_d_k * D
-        # Create kd-tree of all nodes
         n_nodes = len(self)
+        # Create kd-tree of all nodes
         kdt_nodes = mathutils.kdtree.KDTree(n_nodes)
         for i, node in enumerate(self):
             kdt_nodes.insert(node.location, i)
@@ -157,11 +93,11 @@ class TreeNodeContainer(list):
         new_nodes = []  # List of all newly generated nodes 
         # Build correspondence table between nodes and attr. points
         corr = defaultdict(list)
-        for p in p_attr:
+        for i, p in enumerate(p_attr):
             ind, dist = kdt_nodes.find(p)[1:]
             # Kill overgrown attr. points
             if dist <= d_k:
-                kill.append(p)
+                kill.append(i)
             # Else assign close attr. points to nodes
             elif (dist <= d_i or d_i == 0):
                 corr[ind].append(p)
@@ -172,16 +108,18 @@ class TreeNodeContainer(list):
             parent_node.child_indices.append(n_nodes + i)
             # Calculate child location
             loc = parent_node.location
-            n_vec = Vector((0.0,0.0,0.0)) 
+            n_vec = Vector((0.0,0.0,0.0))
             for p in corr[key]:
                 n_vec += (p - loc).normalized()
-            if n_vec.length < math.sqrt(2):
+            if n_vec.length < sqrt_2:
                 n_vec = (corr[key][0] - loc).normalized()
+            else:
+                n_vec.normalize()
             # Create child node
-            new_nodes.append(TreeNode((loc + D * n_vec.normalized()), parent_node.parent_object))
+            new_nodes.append(TreeNode((loc + D * n_vec), parent_node.parent_object))
         self.extend(new_nodes)
-        for p in kill:
-            p_attr.remove(p)
+        for k in reversed(kill):
+            p_attr.pop(k)
         return (len(corr) > 0)
 
     def separate_by_object(self, obj):
