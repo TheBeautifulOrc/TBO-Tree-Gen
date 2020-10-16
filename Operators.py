@@ -109,5 +109,5 @@ class CreateTree(Operator):
         
         f.close()
         t_finish = time.perf_counter()
-        self.report({'INFO'}, f"Created {len(sel)} tree(s) in {round(t_finish-t_start, 3)} second(s)...")
+        self.report({'INFO'}, f"Created {len(sel)} tree(s) in {round(t_finish-t_start, 3)} second(s)")
         return {'FINISHED'}
