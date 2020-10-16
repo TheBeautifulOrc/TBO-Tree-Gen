@@ -9,6 +9,7 @@ import time
 from bpy.types import Operator
 from mathutils import Vector
 from .TreeNodes import TreeNode, TreeNodeContainer
+from .SpaceColonialization import grow_trees
 from .TreeObjects import TreeObject
 from .Utility import get_points_in_object
 
@@ -54,42 +55,7 @@ class CreateTree(Operator):
         p_attr = get_points_in_object(context, tree_data)
 
         ### Space colonialization
-        # Array that contains a TreeNode object 
-        # for each new vertex that will be created later on. It aditionally 
-        # stores information like the branching depth, and the parenthood 
-        # relationships between nodes.
-        all_tree_nodes = TreeNodeContainer()
-        # Setup kd-tree of attraction points
-        kdt_p_attr = mathutils.kdtree.KDTree(tree_data.n_p_attr)
-        for i, p in enumerate(p_attr):
-            kdt_p_attr.insert(p, i)
-        kdt_p_attr.balance()
-        # Grow stems
-        # This is different from the regular iterations since the root nodes 
-        # of the tree objects may be far away from the attraction points.
-        # In that case extra steps must be taken to grow towards the 
-        # attraction points before the regular algorithm can be performed. 
-        for tree_obj in sel:
-            # Create a new list with one root node
-            tree_nodes = TreeNodeContainer()
-            tree_nodes.append(TreeNode(tree_obj.location, tree_obj))
-            dist = kdt_p_attr.find(tree_obj.location)[2]
-            while (dist > tree_data.sc_d_i * tree_data.sc_D and tree_data.sc_d_i != 0):
-                d_i = dist + tree_data.sc_d_i * tree_data.sc_D   # Adjust the attr. point influence so the stem can grow
-                tree_nodes.iterate_growth(p_attr, tree_data, d_i)
-                dist = kdt_p_attr.find(tree_nodes[-1].location)[2]
-            for n in tree_nodes:
-                n.child_indices = [(ind + len(all_tree_nodes)) for ind in n.child_indices]
-            all_tree_nodes.extend(tree_nodes)
-        # Grow the tree crowns
-        its = 0
-        something_new = True
-        while(something_new):
-            if((tree_data.sc_n_iter > 0 and its == tree_data.sc_n_iter) or (len(p_attr) == 0)):
-                something_new = False
-            else:
-                something_new = all_tree_nodes.iterate_growth(p_attr, tree_data)
-                its += 1
+        all_tree_nodes = grow_trees(tree_data, sel, p_attr)
         ### Separate trees
         sorted_trees = []
         sorted_trees.extend([TreeObject(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])

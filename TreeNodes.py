@@ -4,9 +4,9 @@ import bpy
 import math
 import mathutils
 from mathutils import Vector
+from mathutils.kdtree import KDTree
 
 import numpy as np
-from scipy.spatial import cKDTree
 
 from dataclasses import dataclass, field
 from typing import List
@@ -62,7 +62,7 @@ class TreeNodeContainer(list):
                 node.weight += self[c].weight     # And add the child's (previously calculated) weight to the nodes weight
             node.weight_factor = math.sqrt(node.weight / n_nodes)  # The weight factor is ratio between all nodes and the nodes that are connected to this particular node
 
-    def iterate_growth(self, p_attr, tree_data, d_i_override=None):
+    def growth_epoch(self, p_attr, D : float, d_i : float, d_k : float):
         """
         One iteration step of the growth algorithm. 
         
@@ -79,27 +79,24 @@ class TreeNodeContainer(list):
         Returns value:
             'True' if new nodes have been added, otherwise 'False'
         """
-        # Get tree_data values
-        D = tree_data.sc_D
-        d_i = d_i_override if d_i_override is not None else tree_data.sc_d_i * D
-        d_k = tree_data.sc_d_k * D
         n_nodes = len(self)
+        if d_i == 0:
+            d_i == math.inf
         # Create kd-tree of all nodes
-        kdt_nodes = mathutils.kdtree.KDTree(n_nodes)
-        for i, node in enumerate(self):
-            kdt_nodes.insert(node.location, i)
-        kdt_nodes.balance()
+        kdt = KDTree(n_nodes)
+        [kdt.insert(n.location, i) for i, n in enumerate(self)]
+        kdt.balance()
         kill = []   # List of all attraction points that need to be deleted
         new_nodes = []  # List of all newly generated nodes 
         # Build correspondence table between nodes and attr. points
         corr = defaultdict(list)
         for i, p in enumerate(p_attr):
-            ind, dist = kdt_nodes.find(p)[1:]
+            ind, dist = kdt.find(p)[1:]
             # Kill overgrown attr. points
             if dist <= d_k:
                 kill.append(i)
             # Else assign close attr. points to nodes
-            elif (dist <= d_i or d_i == 0):
+            elif (dist <= d_i):
                 corr[ind].append(p)
         # If the node has close attr. points
         # grow a child node

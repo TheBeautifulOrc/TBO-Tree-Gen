@@ -29,6 +29,8 @@ if "bpy" in locals():
     importlib.reload(TreeProperties)
     from . import TreeNodes
     importlib.reload(TreeNodes)
+    from . import SpaceColonialization
+    importlib.reload(SpaceColonialization)
     from . import Utility
     importlib.reload(Utility)
     from . import Panels
