@@ -16,12 +16,6 @@ class TreeProperties(PropertyGroup):
         return ((obj.type == 'MESH') 
             and (obj.name in bpy.data.objects)
         )
-        
-    pr_enable_reduction : BoolProperty(
-        name="Enable Vertex Reduction",
-        description="Should the vertex reduction be executed?",
-        default=True
-    )
     pr_enable_skinning : BoolProperty(
         name="Enable Skinning",
         description="Should the skin modifier be applied?",
@@ -94,9 +88,9 @@ class TreeProperties(PropertyGroup):
         default=1000,
         min=0
     )
-    vr_red_angle : FloatProperty(
+    nr_max_angle : FloatProperty(
         name="Reduction Angle",
-        description="Smallest angle that can't be reduced anymore",
+        description="Largest angle that will be considered a straight line and thus be reduced",
         default=math.radians(5.0),
         soft_min=0.1,
         min=0.0,
@@ -116,6 +110,13 @@ class TreeProperties(PropertyGroup):
         name="Minimum Radius",
         description="Minimum radius of the branches",
         default=0.01,
+        min=0.0,
+        unit='LENGTH'
+    )
+    sk_loop_distance : FloatProperty(
+        name="Loop Distance",
+        description="Preferred distance between edge loops",
+        default=0.1,
         min=0.0,
         unit='LENGTH'
     )

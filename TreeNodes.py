@@ -80,8 +80,6 @@ class TreeNodeContainer(list):
             'True' if new nodes have been added, otherwise 'False'
         """
         n_nodes = len(self)
-        if d_i == 0:
-            d_i == math.inf
         # Create kd-tree of all nodes
         kdt = KDTree(n_nodes)
         [kdt.insert(n.location, i) for i, n in enumerate(self)]
@@ -142,3 +140,38 @@ class TreeNodeContainer(list):
             for i, c in enumerate(sn.child_indices):
                 sn.child_indices[i] = corr[c]
         return separate_nodes
+    
+    def reduce_nodes(self, red_angle : float):
+        # Get list of indices pointing to each nodes parent
+        par_inds = [0] * len(self)
+        for n, node in enumerate(self):
+            for c_i in node.child_indices:
+                par_inds[c_i] = n
+        # Remove superfluous nodes and correct their parent's indices
+        kill_list = []
+        for n, node in enumerate(self[1:], 1):
+            if len(node.child_indices) == 1:
+                parent_ind = par_inds[n]
+                child_ind = node.child_indices[0]
+                parent = self[parent_ind]
+                child = self[child_ind]
+                vec_1 = (node.location - parent.location)
+                vec_2 = (child.location - node.location)
+                if vec_1.angle(vec_2) <= red_angle:
+                    parent.child_indices.remove(n)
+                    parent.child_indices.append(child_ind)
+                    par_inds[child_ind] = parent_ind
+                    kill_list.append(n)
+        for k in reversed(kill_list):
+            self[k] = None
+        
+        # Update indices
+        corr = {}
+        new_counter = 0
+        for old_counter, node in enumerate(self):
+            if node is not None:
+                corr[old_counter] = new_counter
+                new_counter += 1
+        self[:] = [node for node in self if node is not None]
+        for node in self:
+            node.child_indices = [corr[ind] for ind in node.child_indices]

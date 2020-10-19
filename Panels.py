@@ -36,8 +36,6 @@ class PRSubPanel(PanelTemplate, Panel):
         tree_data = context.scene.tbo_treegen_data
 
         grid = layout.grid_flow(row_major=True, columns=2)
-        grid.label(text="Vertex Reduction")
-        grid.prop(tree_data, "pr_enable_reduction", text="")
         grid.label(text="Tree Skinning")
         grid.prop(tree_data, "pr_enable_skinning", text="")
 
@@ -94,15 +92,10 @@ class SCSubPanel(PanelTemplate, Panel):
         grid.label(text="Max Iterations")
         grid.prop(tree_data, "sc_n_iter", text="")
 
-class VRSubPanel(PanelTemplate, Panel):
+class NRSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
     bl_idname = "OBJECT_PT_tbo_treegen_vr"
-    bl_label = "Vertex Reduction"
-
-    @classmethod
-    def poll(cls, context):
-        tree_data = context.scene.tbo_treegen_data
-        return tree_data.pr_enable_reduction
+    bl_label = "Node Reduction"
     
     def draw(self, context):
         layout = self.layout
@@ -111,7 +104,7 @@ class VRSubPanel(PanelTemplate, Panel):
         grid = layout.grid_flow(row_major=True, columns=2)
         
         grid.label(text="Reduction Angle")
-        grid.prop(tree_data, "vr_red_angle", text="")
+        grid.prop(tree_data, "nr_max_angle", text="")
 
 class SKSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
@@ -133,3 +126,5 @@ class SKSubPanel(PanelTemplate, Panel):
         grid.prop(tree_data, "sk_base_radius", text="")
         grid.label(text="Minimum Radius")
         grid.prop(tree_data, "sk_min_radius", text="")
+        grid.label(text="Loop Distance")
+        grid.prop(tree_data, "sk_loop_distance", text="")

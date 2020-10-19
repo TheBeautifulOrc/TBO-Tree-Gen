@@ -15,12 +15,14 @@ def grow_trees(tree_data : TreeProperties, objects : List[bpyObject], p_attr : L
     res_nodes = TreeNodeContainer()
     D = tree_data.sc_D
     d_i = tree_data.sc_d_i * D
+    if d_i == 0:
+        d_i = math.inf
     d_k = tree_data.sc_d_k * D
     max_iter = tree_data.sc_n_iter if tree_data.sc_n_iter != 0 else math.inf
     # Initialize first nodes 
     [res_nodes.append(TreeNode(obj.location, obj)) for obj in objects]
     # Grow stems
-    if d_i != 0:
+    if d_i != math.inf:
         kdt = KDTree(tree_data.n_p_attr)
         [kdt.insert(p, i) for i, p in enumerate(p_attr)]
         kdt.balance()

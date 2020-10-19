@@ -63,6 +63,8 @@ class CreateTree(Operator):
         for tree in sorted_trees:
             ### Calculate weights
             tree.nodes.calculate_weights()
+            ### Reduce unnecessary nodes 
+            tree.nodes.reduce_nodes(tree_data.nr_max_angle)
             ### Generate mesh
             if not tree_data.pr_enable_skinning:
                 tree.generate_skeltal_mesh() # Generate skeleton

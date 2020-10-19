@@ -2,6 +2,13 @@
 
 This addon for Blender 2.8+ creates trees procedurally by implementing a space colonialization algorithm. 
 
+---
+**Warning: This project is a work in progress (hence it's labeled as WIP). The builds that are being pushed to master are neither functional nor stable. Furthermore there are currently no manuals or wiki entries.** 
+
+**This Addon is not production ready. Do not expect any support when trying to work with it in such an early stage!**
+
+---
+
 ## Features
 
 The algorithm implemented in this addon is based on the paper [Modeling Trees with a Space Colonization Algorithm](http://algorithmicbotany.org/papers/colonization.egwnp2007.large.pdf "Link to the paper"). The main advantages of this addon compared to most other tree generation addons for Blender are:

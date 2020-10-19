@@ -47,7 +47,7 @@ classes = (
     Panels.PRSubPanel,
     Panels.APSubPanel,
     Panels.SCSubPanel,
-    Panels.VRSubPanel,
+    Panels.NRSubPanel,
     Panels.SKSubPanel
 )
 
