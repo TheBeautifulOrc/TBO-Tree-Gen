@@ -70,7 +70,7 @@ class CreateTree(Operator):
                 tree.generate_skeltal_mesh() # Generate skeleton
             # If not in preview-mode create mesh with volume
             else:
-                tree.generate_mesh_ji_liu_wang()
+                tree.generate_mesh()
             
         # Reset active object
         context.view_layer.objects.active = act
