@@ -120,3 +120,10 @@ class TreeProperties(PropertyGroup):
         min=0.0,
         unit='LENGTH'
     )
+    sk_interpolation_mode : EnumProperty(
+        items=[('LIN', "Linear", "Linear Interpolation"),
+               ('SPL', "Spline", "Spline Interpolation")],
+        name="Interpolation Mode",
+        description="Method for interpolating positions in between nodes",
+        default='LIN'
+    )
