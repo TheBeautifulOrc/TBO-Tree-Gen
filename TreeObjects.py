@@ -1,4 +1,17 @@
-# Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
+# Copyright (C) 2019-2020 Luai "TheBeautifulOrc" Malek
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # pylint: disable=relative-beyond-top-level, 
 
@@ -122,130 +135,127 @@ class TreeObject:
         weights[weights < min_radius] = min_radius
         weights[np.isinf(weights)] = -1.0
         
-        verts = []
-        squares = bmesh_ji_liu_wang(joint_map, locs, weights, loop_dist, interpolation_mode)
-        for l in squares:
-            for p in l:
-                verts.append(p)
-        # verts = np.array([e for sublist in verts for e in sublist]).reshape(-1,3)
+        verts, connection_table = bmesh_ji_liu_wang(joint_map, locs, weights, loop_dist, interpolation_mode)
+        # new_verts = []
+        # for l in squares:
+        #     for p in l:
+        #         verts.append(p)
+        # verts = new_verts
         
-        bm = bmesh.new()
-        [bm.verts.new(v) for v in verts]
-        bm.verts.index_update()
-        bm.verts.ensure_lookup_table()
-        # # Take care of edges
-        # bm.edges.index_update()
-        # bm.edges.ensure_lookup_table()
-        bm.to_mesh(self.bl_object.data)
-        bm.free()
+        # bm = bmesh.new()
+        # [bm.verts.new(v) for v in verts]
+        # bm.verts.index_update()
+        # bm.verts.ensure_lookup_table()
+        # # # Take care of edges
+        # # bm.edges.index_update()
+        # # bm.edges.ensure_lookup_table()
+        # bm.to_mesh(self.bl_object.data)
+        # bm.free()
 
 # Global constants
 _global_coordinates = np.array([[0,0,1], [0,1,0], [1,0,0]], dtype=np.float64)
 _vertex_signs = np.transpose(np.array([[1,-1,-1,1], [1,1,-1,-1]]))
+_1D_int_array = int64[:]
 _1D_float_array = float64[:]
 _2D_float_array = float64[:,:]
      
-# TODO: Evaluate whether parallelization could get a speed increase for trees with many limbs
 # TODO: Rewrite function to support AoT-compilation
 @njit(fastmath=True, parallel=True)
 def bmesh_ji_liu_wang(joint_map : np.array, node_locs : np.array, node_weights : np.array, loop_distance : float, interpolation_mode : str):
     # pylint: disable=not-an-iterable
-    # General values
+    # General purpose values
     n_limbs = len(node_locs)
-    squares = nbList()
+    # Return values
+    verts = nbList.empty_list(item_type=_1D_float_array)
+    connection_table = nbList.empty_list(item_type=_1D_int_array)
     
     ### Sweeping each limb separately
     for l in prange(n_limbs):
-        limb_node_locs = node_locs[l]
-        limb_node_weights = node_weights[l]
-        n_nodes = np.count_nonzero(limb_node_weights > 0.0)
-        # limb_locs = nbList() # Locations of nodes and points in between
-        # limb_weights = nbList() # Weights of nodes and points in between
+        # Cut off all padding values
+        n_nodes = np.count_nonzero(node_weights[l] >= 0.0)
+        limb_node_locs = node_locs[l,:n_nodes]
+        limb_node_weights = node_weights[l,:n_nodes]
         
-        ### Calculate locations and weights of points in between nodes
-        # Interpolated weights
-        sep_weight = nbDict.empty(key_type=int64, value_type=_1D_float_array)
-        # Interpolated 3D locations
-        sep_loc = nbDict.empty(key_type=int64, value_type=_2D_float_array)
-        # Number of in-between-sections in this limb
-        n_sections = n_nodes - 1
-        for n in prange(n_sections):    # For each segment in the limb
-            # Calculate vector and distance between the adjacent nodes
-            prev_node_loc = limb_node_locs[n]
-            next_node_loc = limb_node_locs[n+1]
-            prev_node_weight = limb_node_weights[n]
-            next_node_weight = limb_node_weights[n+1]
-            diff = next_node_loc - prev_node_loc
-            dist = la.norm(diff, 2)
-            # Calculate number of evenly spaced separators
-            n_separators = round(dist/loop_distance) - 1
-            # Calculate positions of each separator on the line between 
-            # the adjacent nodes for later interpolation
-            offset = (dist - (n_separators - 1) * loop_distance) / 2
-            # 1D positions of separators in this segment
-            sec_sep_pos = np.empty((n_separators))
-            # Weight of separators in this segment
-            sec_sep_weight = np.empty((n_separators))
-            # 3D location of separators in this segment
-            sec_sep_loc = np.empty((n_separators, 3))
-            for s in prange(n_separators):
-                pos = (offset + s * loop_distance) / dist
-                sec_sep_pos[s] = pos
-                # Calculate weight by linear interpolation
-                sec_sep_weight[s] = prev_node_weight * (1-pos) + next_node_weight * pos
-                ### Calculate location
-                # Either using linear interpolation
-                if interpolation_mode == 'LIN':
-                    sec_sep_loc[s] = prev_node_loc * (1-pos) + next_node_loc * pos
-                # Or spline interpolation
-                elif interpolation_mode == 'SPL':
-                    pass
-            sep_weight[n] = sec_sep_weight
-            sep_loc[n] = sec_sep_loc
-            squares.append(sec_sep_loc)
+    return verts, connection_table
+    
+@njit(fastmath=True, parallel=True)
+def calc_in_between_locs(limb_node_locs, loop_distance, interpolation_mode):
+    # pylint: disable=not-an-iterable
+    ### Calculate locations and weights of points in between nodes
+    # Interpolated 3D locations
+    sep_loc = nbDict.empty(key_type=int64, value_type=_2D_float_array)
+    # Number of in-between-sections in this limb
+    n_sections = len(limb_node_locs) - 1
+    for n in prange(n_sections):    # For each segment in the limb
+        # Calculate vector and distance between the adjacent nodes
+        prev_node_loc = limb_node_locs[n]
+        next_node_loc = limb_node_locs[n+1]
+        diff = next_node_loc - prev_node_loc
+        dist = la.norm(diff, 2)
+        # Calculate number of evenly spaced separators
+        n_separators = round(dist/loop_distance) - 1
+        # Calculate positions of each separator on the line between 
+        # the adjacent nodes for later interpolation
+        offset = (dist - (n_separators - 1) * loop_distance) / 2
+        # 1D positions of separators in this segment
+        sec_sep_pos = np.empty((n_separators))
+        # Weight of separators in this segment
+        sec_sep_weight = np.empty((n_separators))
+        # 3D location of separators in this segment
+        sec_sep_loc = np.empty((n_separators, 3))
+        for s in prange(n_separators):
+            pos = (offset + s * loop_distance) / dist
+            sec_sep_pos[s] = pos
+            ### Calculate location
+            # Either using linear interpolation
+            if interpolation_mode == 'LIN':
+                sec_sep_loc[s] = prev_node_loc * (1-pos) + next_node_loc * pos
+            # Or spline interpolation
+            elif interpolation_mode == 'SPL':
+                pass
+        sep_loc[n] = sec_sep_loc
+    
         
-    return squares
-        
-    #     for n in prange(0, limb_locs, 2):
-    #         half_n = int(n/2)
-    #         locs[n] = limb_locs[half_n]
-    #     for n in prange(1, limb_locs, 2):
-    #         locs[n] = (locs[n-1] + locs[n+1]) / 2
-    #     # Calculate tangent vectors for each node and bone inside the limb
-    #     tangents = np.empty((n_tangents, 3), dtype=np.float64)
-    #     for n in prange(0, n_tangents, 2):
-    #         tangents[n] = locs[n+2] - locs[n]
-    #     for n in prange(1, n_tangents, 2):
-    #         tangents[n] = tangents[n-1] + tangents[n+1]
-    #     tangent_lens = np.empty((n_tangents), dtype=np.float64)   # Length of each element of diff_vecs
-    #     for n in prange(n_tangents):
-    #         tangent_lens[n] = la.norm(tangents[n], 2)
-    #         tangents[n] /= tangent_lens[n]
-    #     # Calculate local coordinate systems
-    #     # x is the direction of the respective tangent pointing town the limb
-    #     local_coordinates = np.empty((n_tangents, 3, 3), dtype=np.float64)
-    #     local_coordinates[:,0] = tangents
-    #     for n in prange(n_tangents):
-    #         # Special case: local x is parallel to global z
-    #         # This float comparison is BAD! 
-    #         # TODO: Replace with math.isclose as soon as it is supported in Numba
-    #         lc = local_coordinates[n]
-    #         if abs((lc[0] @ _global_coordinates[2]) - 1.0) < 0.0001:
-    #             lc[1:] = _global_coordinates[:-1]
-    #         else:
-    #             # y is [global z (cross) x], z is [x (cross) y]
-    #             lc[1] = np.cross(_global_coordinates[2], lc[0])
-    #             lc[2] = np.cross(lc[0], lc[1])
-    #             for vec in lc[1:]:
-    #                 vec[:] /= la.norm(vec, 2)
-    #     limb_squares = np.empty((n_tangents, 4, 3), dtype=np.float64)
-    #     square_offets = locs[1:-1]
-    #     for n in prange(n_tangents):
-    #         lc = local_coordinates[n]
-    #         s_offs = square_offets[n]
-    #         for v in prange(4):
-    #             sgn = _vertex_signs[v]
-    #             limb_squares[n,v] = lc[2] * sgn[0] + lc[1] * sgn[1]
-    #         limb_squares[n] += s_offs
-    #     squares.append(limb_squares)
-    # return(squares)
+#     for n in prange(0, limb_locs, 2):
+#         half_n = int(n/2)
+#         locs[n] = limb_locs[half_n]
+#     for n in prange(1, limb_locs, 2):
+#         locs[n] = (locs[n-1] + locs[n+1]) / 2
+#     # Calculate tangent vectors for each node and bone inside the limb
+#     tangents = np.empty((n_tangents, 3), dtype=np.float64)
+#     for n in prange(0, n_tangents, 2):
+#         tangents[n] = locs[n+2] - locs[n]
+#     for n in prange(1, n_tangents, 2):
+#         tangents[n] = tangents[n-1] + tangents[n+1]
+#     tangent_lens = np.empty((n_tangents), dtype=np.float64)   # Length of each element of diff_vecs
+#     for n in prange(n_tangents):
+#         tangent_lens[n] = la.norm(tangents[n], 2)
+#         tangents[n] /= tangent_lens[n]
+#     # Calculate local coordinate systems
+#     # x is the direction of the respective tangent pointing town the limb
+#     local_coordinates = np.empty((n_tangents, 3, 3), dtype=np.float64)
+#     local_coordinates[:,0] = tangents
+#     for n in prange(n_tangents):
+#         # Special case: local x is parallel to global z
+#         # This float comparison is BAD! 
+#         # TODO: Replace with math.isclose as soon as it is supported in Numba
+#         lc = local_coordinates[n]
+#         if abs((lc[0] @ _global_coordinates[2]) - 1.0) < 0.0001:
+#             lc[1:] = _global_coordinates[:-1]
+#         else:
+#             # y is [global z (cross) x], z is [x (cross) y]
+#             lc[1] = np.cross(_global_coordinates[2], lc[0])
+#             lc[2] = np.cross(lc[0], lc[1])
+#             for vec in lc[1:]:
+#                 vec[:] /= la.norm(vec, 2)
+#     limb_squares = np.empty((n_tangents, 4, 3), dtype=np.float64)
+#     square_offets = locs[1:-1]
+#     for n in prange(n_tangents):
+#         lc = local_coordinates[n]
+#         s_offs = square_offets[n]
+#         for v in prange(4):
+#             sgn = _vertex_signs[v]
+#             limb_squares[n,v] = lc[2] * sgn[0] + lc[1] * sgn[1]
+#         limb_squares[n] += s_offs
+#     squares.append(limb_squares)
+# return(squares)
