@@ -54,7 +54,7 @@ classes = (
 def register():
     for cl in classes:
         bpy.utils.register_class(cl)
-    bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)
+    bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)  # pylint: disable=assignment-from-no-return
     # Check for dependencies and install if necessary
     PackageHandler.handle_packages(modules)
 

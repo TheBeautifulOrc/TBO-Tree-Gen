@@ -1,5 +1,7 @@
 # Copyright (C) 2020  Luai "TheBeautifulOrc" Malek
 
+# pylint: disable=relative-beyond-top-level, 
+
 import bpy
 from bpy.types import (Operator, Panel, PropertyGroup)
 from .TreeProperties import TreeProperties
