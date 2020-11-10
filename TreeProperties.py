@@ -31,10 +31,10 @@ class TreeProperties(PropertyGroup):
         return ((obj.type == 'MESH') 
             and (obj.name in bpy.data.objects)
         )
-    pr_enable_skinning : BoolProperty(  
-        name="Enable Skinning",
-        description="Should the skin modifier be applied?",
-        default=True
+    pr_skeletons_only : BoolProperty(  
+        name="Skeletons Only",
+        description="If enabled only the tree skeletons will be calculated and displayed",
+        default=False
     )
     seed : IntProperty( 
         name="Seed",
@@ -49,7 +49,7 @@ class TreeProperties(PropertyGroup):
     )
     use_shape_modifiers : BoolProperty( 
         name="Evaluate Modifiers", 
-        description="Should the shape objects modifiers be evaluated?",
+        description="If enabled the shape objects modifiers will be evaluated",
         default=True
     )
     n_p_attr : IntProperty( 
@@ -75,7 +75,7 @@ class TreeProperties(PropertyGroup):
     )
     even_dist_p_attr : BoolProperty(    
         name="Even Distribution",
-        description="Should attraction points be distributed evenly?",
+        description="If enabled attraction points will be distributed evenly",
         default=True
     )
     sc_D : FloatProperty(   
@@ -137,8 +137,8 @@ class TreeProperties(PropertyGroup):
     )
     sk_interpolation_mode : EnumProperty(   
         items=[('LIN', "Linear", "Linear Interpolation"),
-               ('SPL', "Spline", "Spline Interpolation")],
+               ('CUB', "Cubic", "Cubic Spline Interpolation")],
         name="Interpolation Mode",
         description="Method for interpolating positions in between nodes",
-        default='LIN'
+        default='CUB'
     )

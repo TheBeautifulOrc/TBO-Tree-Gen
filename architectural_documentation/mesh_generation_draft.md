@@ -23,15 +23,13 @@
     4. **calc_loc_coordinates**(tangents) -> loc_coordinates
 
     5. **calc_verts**(loc_coordinates, weights) -> verts
-        
-    2. **stitch**(arg0, verts) -> verts, connection_table
 
-        *foreach joint:*
+    *foreach joint:*
 
-        1. **eliminate_overshadowed**(arg0, verts) -> verts
+    6. **eliminate_overshadowed**(arg0, verts) -> verts
 
-        2. **calculate_joint_connections**(arg0, verts) -> connection_table
+    7. **calculate_joint_connections**(arg0, verts) -> connection_table
 
-        *foreach limb:*
+    *foreach limb:*
 
-        3. **calculate_limb_connections**(arg0, verts, connection_table) -> connection_table
+    8. **calculate_limb_connections**(arg0, verts, connection_table) -> connection_table

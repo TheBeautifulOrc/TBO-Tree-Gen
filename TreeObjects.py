@@ -34,7 +34,14 @@ from collections import defaultdict
 from .TreeNodes import TreeNode, TreeNodeContainer
 from .TreeProperties import TreeProperties
 from .Utility import transform_points, quick_hull
-        
+
+# Global constants
+_glob_orthonorm_basis = np.array([[0,0,1], [0,1,0], [1,0,0]])
+_vertex_signs = np.transpose(np.array([[1,-1,-1,1], [1,1,-1,-1]]))
+_1D_int_array = int64[:]
+_1D_float_array = float64[:]
+_2D_float_array = float64[:,:]
+
 class TreeObject:
     """
     Class used to combine all relevant data to create the trees mesh.
@@ -82,7 +89,6 @@ class TreeObject:
         bm.to_mesh(self.bl_object.data)
         bm.free()
         
-    # TODO: Implement spline interpolation as an alternative to linear interpolation (default)
     def generate_mesh(self):
         # Gather general data
         nodes = self.nodes
@@ -125,8 +131,8 @@ class TreeObject:
         
         nodes_per_limb = max([len(l) for l in limbs])
         n_limbs = len(limbs)
-        locs = np.full((n_limbs, nodes_per_limb, 3), np.nan, dtype=np.float)
-        weights = np.full((n_limbs, nodes_per_limb), np.inf, dtype=np.float)
+        locs = np.full((n_limbs, nodes_per_limb, 3), np.nan)
+        weights = np.full((n_limbs, nodes_per_limb), np.inf)
         for l, limb in enumerate(limbs):
             for n, node in enumerate(limb):
                 locs[l,n] = node.location
@@ -152,13 +158,6 @@ class TreeObject:
         # bm.to_mesh(self.bl_object.data)
         # bm.free()
 
-# Global constants
-_global_coordinates = np.array([[0,0,1], [0,1,0], [1,0,0]], dtype=np.float64)
-_vertex_signs = np.transpose(np.array([[1,-1,-1,1], [1,1,-1,-1]]))
-_1D_int_array = int64[:]
-_1D_float_array = float64[:]
-_2D_float_array = float64[:,:]
-     
 # TODO: Rewrite function to support AoT-compilation
 @njit(fastmath=True, parallel=True)
 def bmesh_ji_liu_wang(joint_map : np.array, node_locs : np.array, node_weights : np.array, loop_distance : float, interpolation_mode : str):
@@ -175,45 +174,99 @@ def bmesh_ji_liu_wang(joint_map : np.array, node_locs : np.array, node_weights :
         n_nodes = np.count_nonzero(node_weights[l] >= 0.0)
         limb_node_locs = node_locs[l,:n_nodes]
         limb_node_weights = node_weights[l,:n_nodes]
+        calc_in_between_locs(limb_node_locs, loop_distance, interpolation_mode)
         
     return verts, connection_table
     
 @njit(fastmath=True, parallel=True)
 def calc_in_between_locs(limb_node_locs, loop_distance, interpolation_mode):
+    """Calculate locations of points in between nodes"""
     # pylint: disable=not-an-iterable
-    ### Calculate locations and weights of points in between nodes
-    # Interpolated 3D locations
-    sep_loc = nbDict.empty(key_type=int64, value_type=_2D_float_array)
+    locs = nbDict.empty(key_type=int64, value_type=_2D_float_array)
     # Number of in-between-sections in this limb
-    n_sections = len(limb_node_locs) - 1
-    for n in prange(n_sections):    # For each segment in the limb
-        # Calculate vector and distance between the adjacent nodes
-        prev_node_loc = limb_node_locs[n]
-        next_node_loc = limb_node_locs[n+1]
-        diff = next_node_loc - prev_node_loc
-        dist = la.norm(diff, 2)
-        # Calculate number of evenly spaced separators
-        n_separators = round(dist/loop_distance) - 1
-        # Calculate positions of each separator on the line between 
-        # the adjacent nodes for later interpolation
-        offset = (dist - (n_separators - 1) * loop_distance) / 2
-        # 1D positions of separators in this segment
-        sec_sep_pos = np.empty((n_separators))
-        # Weight of separators in this segment
-        sec_sep_weight = np.empty((n_separators))
-        # 3D location of separators in this segment
-        sec_sep_loc = np.empty((n_separators, 3))
-        for s in prange(n_separators):
-            pos = (offset + s * loop_distance) / dist
-            sec_sep_pos[s] = pos
-            ### Calculate location
-            # Either using linear interpolation
-            if interpolation_mode == 'LIN':
-                sec_sep_loc[s] = prev_node_loc * (1-pos) + next_node_loc * pos
-            # Or spline interpolation
-            elif interpolation_mode == 'SPL':
-                pass
-        sep_loc[n] = sec_sep_loc
+    n_nodes = len(limb_node_locs)
+    n_sections = n_nodes - 1
+    # Vectors and distances between nodes 
+    diffs = limb_node_locs[1:] - limb_node_locs[:-1]
+    dists = np.asarray([la.norm(diff, 2) for diff in diffs])
+    # Number of points in between nodes necessary to keep distance 
+    # between edge loops as close as possible to loop_distance 
+    n_points = np.asarray([round(dist/loop_distance) - 1 for dist in dists])
+    # Offsets between the nodes and neighboring interpolated points
+    offsets = np.asarray([(dist - (npt - 1) * loop_distance) / 2 for dist, npt in zip(dists, n_points)])
+    # Function variables that will be plugged into the interpolation functions
+    positions = nbDict.empty(key_type=int64, value_type=_1D_float_array)
+    for s in prange(n_sections):
+        # Variables for this section
+        npt = n_points[s]
+        offset = offsets[s]
+        dist = dists[s]
+        pos = np.empty(npt)
+        # Calculate each point separately
+        for p in prange(npt):
+            pos[p] = (offset + p * loop_distance) / dist
+        positions[s] = pos
+    # If the current limb consists of only one section (two nodes) 
+    # interpolation will always be linear
+    if n_sections < 2: 
+        interpolation_mode = 'LIN'
+    # Cubic spline interpolation
+    if interpolation_mode == 'CUB':
+        # Convenience vectors
+        l_vec = dists[1:]   # Left of main diagonal
+        r_vec = dists[:-1]  # Right of main diagonal
+        d_vec = 2 * (l_vec + r_vec) # Main diagonal
+        # Tridiagonal, diagonally dominant matrix (n_nodes x n_nodes)
+        # In literature sometimes denoted as 'N' for hermetic cubic splines
+        N = np.full((n_nodes, n_nodes), 0.0)
+        # First and last entry are 1.0
+        N[0,0] = 1.0
+        N[-1,-1] = 1.0
+        # Fill with convenience vectors
+        for i in prange(n_sections-1):
+            N[i+1,i] = l_vec[i]
+            N[i+1,i+1] = d_vec[i]
+            N[i+1,i+2] = r_vec[i]
+        # Get inverse
+        inv_N = la.inv(N)
+        # Matrix on the righthand side of the spline-construction-equation
+        # In literature sometimes denoted as 'R_sigma' for hermetic cubic splines
+        R_sigma = np.empty((n_nodes, 3))
+        # First and last entry are the slope of the first and last segment
+        R_sigma[0] = diffs[0] / dists[0]
+        R_sigma[-1] = diffs[-1] / dists[-1]
+        # All other entries are calculated the following way
+        for i in prange(n_sections-1):
+            R_sigma[i+1] = 3 * ((diffs[i+1] * dists[i] / dists[i+1]) + (diffs[i] * dists[i+1] / dists[i]))
+        # The matrix denoted as 'S' contains all the slope values necessary
+        # to calculate the coefficients of the final spline functions
+        S = inv_N @ R_sigma
+        # Calculate the coefficients of the spline functions
+        c1 = limb_node_locs[:-1]
+        c2 = R_sigma[:-1]
+        c3 = np.empty((n_sections, 3))
+        c4 = np.empty((n_sections, 3))
+        for i in prange(n_sections):
+            c3[i] = (3 * limb_node_locs[i+1] 
+                     - 3 * limb_node_locs[i] 
+                     - 2 * S[i] * dists[i] 
+                     - S[i+1] * dists[i]) / (dists[i]**2)
+            c4[i] = (2 * limb_node_locs[i]
+                     - 2 * limb_node_locs[i+1]
+                     + S[i] * dists[i]
+                     + S[i+1] * dists[i]) / (dists[i]**3)
+        # TODO: Finish spline interpolation
+    # Linear interpolation
+    elif interpolation_mode == 'LIN':
+        for s in prange(n_sections):
+            npt = n_points[s]
+            sec_positions = positions[s]
+            sec_locs = np.empty((npt, 3))
+            node_loc = limb_node_locs[s]
+            diff = diffs[s]
+            for p in prange(npt):
+                sec_locs[p] = node_loc + sec_positions[p] * diff
+            locs[s] = sec_locs
     
         
 #     for n in prange(0, limb_locs, 2):
@@ -240,11 +293,11 @@ def calc_in_between_locs(limb_node_locs, loop_distance, interpolation_mode):
 #         # This float comparison is BAD! 
 #         # TODO: Replace with math.isclose as soon as it is supported in Numba
 #         lc = local_coordinates[n]
-#         if abs((lc[0] @ _global_coordinates[2]) - 1.0) < 0.0001:
-#             lc[1:] = _global_coordinates[:-1]
+#         if abs((lc[0] @ _glob_orthonorm_basis[2]) - 1.0) < 0.0001:
+#             lc[1:] = _glob_orthonorm_basis[:-1]
 #         else:
 #             # y is [global z (cross) x], z is [x (cross) y]
-#             lc[1] = np.cross(_global_coordinates[2], lc[0])
+#             lc[1] = np.cross(_glob_orthonorm_basis[2], lc[0])
 #             lc[2] = np.cross(lc[0], lc[1])
 #             for vec in lc[1:]:
 #                 vec[:] /= la.norm(vec, 2)

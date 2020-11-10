@@ -19,6 +19,8 @@ import bpy
 from bpy.types import (Operator, Panel, PropertyGroup)
 from .TreeProperties import TreeProperties
 
+_separation_factor = 2.0
+
 class PanelTemplate:
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -51,8 +53,8 @@ class PRSubPanel(PanelTemplate, Panel):
         tree_data = context.scene.tbo_treegen_data
 
         grid = layout.grid_flow(row_major=True, columns=2)
-        grid.label(text="Tree Skinning")
-        grid.prop(tree_data, "pr_enable_skinning", text="")
+        grid.label(text="Skeletons Only")
+        grid.prop(tree_data, "pr_skeletons_only", text="")
 
 class APSubPanel(PanelTemplate, Panel):
     bl_parent_id = "OBJECT_PT_tbo_treegen_main"
@@ -62,15 +64,14 @@ class APSubPanel(PanelTemplate, Panel):
     def draw(self, context):
         layout = self.layout
         tree_data = context.scene.tbo_treegen_data
-        separation_factor = 2.0
 
         grid = layout.grid_flow(row_major=True, columns=2)
         grid.label(text="Shape Object")
         grid.prop(tree_data, "shape_object", text="")
         grid.label(text="Use Modifiers")
         grid.prop(tree_data, "use_shape_modifiers", text="")
-        grid.separator(factor=separation_factor)
-        grid.separator(factor=separation_factor)
+        grid.separator(factor=_separation_factor)
+        grid.separator(factor=_separation_factor)
         grid.label(text="Number")
         grid.prop(tree_data, "n_p_attr", text="")
         grid.label(text="Seed")
@@ -90,20 +91,19 @@ class SCSubPanel(PanelTemplate, Panel):
     def draw(self, context):
         layout = self.layout
         tree_data = context.scene.tbo_treegen_data
-        separation_factor = 2.0
 
         grid = layout.grid_flow(row_major=True, columns=2)
         
         grid.label(text="Node Distance")
         grid.prop(tree_data, "sc_D", text="")
-        grid.separator(factor=separation_factor)
-        grid.separator(factor=separation_factor)
+        grid.separator(factor=_separation_factor)
+        grid.separator(factor=_separation_factor)
         grid.label(text="Influence Radius")
         grid.prop(tree_data, "sc_d_i", text="")
         grid.label(text="Kill Distance")
         grid.prop(tree_data, "sc_d_k", text="")
-        grid.separator(factor=separation_factor)
-        grid.separator(factor=separation_factor)
+        grid.separator(factor=_separation_factor)
+        grid.separator(factor=_separation_factor)
         grid.label(text="Max Iterations")
         grid.prop(tree_data, "sc_n_iter", text="")
 
@@ -129,7 +129,7 @@ class SKSubPanel(PanelTemplate, Panel):
     @classmethod
     def poll(cls, context):
         tree_data = context.scene.tbo_treegen_data
-        return tree_data.pr_enable_skinning
+        return not tree_data.pr_skeletons_only
 
     def draw(self, context):
         layout = self.layout
@@ -141,5 +141,11 @@ class SKSubPanel(PanelTemplate, Panel):
         grid.prop(tree_data, "sk_base_radius", text="")
         grid.label(text="Minimum Radius")
         grid.prop(tree_data, "sk_min_radius", text="")
+        grid.separator(factor=_separation_factor)
+        grid.separator(factor=_separation_factor)
         grid.label(text="Loop Distance")
         grid.prop(tree_data, "sk_loop_distance", text="")
+        grid.separator(factor=_separation_factor)
+        grid.separator(factor=_separation_factor)
+        grid.label(text="Interpolation Mode")
+        grid.prop(tree_data, "sk_interpolation_mode", text="")

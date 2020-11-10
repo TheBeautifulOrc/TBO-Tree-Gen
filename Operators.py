@@ -81,7 +81,7 @@ class CreateTree(Operator):
             ### Reduce unnecessary nodes 
             tree.nodes.reduce_nodes(tree_data.nr_max_angle)
             ### Generate mesh
-            if not tree_data.pr_enable_skinning:
+            if tree_data.pr_skeletons_only:
                 tree.generate_skeltal_mesh() # Generate skeleton
             # If not in preview-mode create mesh with volume
             else:
