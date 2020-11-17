@@ -33,24 +33,25 @@ modules = [
     ]
 
 if "bpy" in locals():
+    # pylint: disable=import-error
     import importlib
-    from . import PackageHandler
+    from .py_src import PackageHandler
     importlib.reload(PackageHandler)
     # Check for dependencies and install if necessary
     PackageHandler.handle_packages(modules)
-    from . import TreeProperties
+    from .py_src import TreeProperties
     importlib.reload(TreeProperties)
-    from . import TreeNodes
+    from .py_src import TreeNodes
     importlib.reload(TreeNodes)
-    from . import SpaceColonialization
+    from .py_src import SpaceColonialization
     importlib.reload(SpaceColonialization)
-    from . import Utility
+    from .py_src import Utility
     importlib.reload(Utility)
-    from . import Panels
+    from .py_src import Panels
     importlib.reload(Panels)
-    from . import TreeObjects
+    from .py_src import TreeObjects
     importlib.reload(TreeObjects)
-    from . import Operators
+    from .py_src import Operators
     importlib.reload(Operators)
 
 classes = (
