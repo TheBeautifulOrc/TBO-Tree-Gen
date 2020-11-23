@@ -30,6 +30,7 @@ from bpy.props import PointerProperty
 
 modules = [
     "numba",    # JIT-compiler for faster code execution
+    "pybind11"  # Tools for binding C++ to Python
     ]
 
 if "bpy" in locals():

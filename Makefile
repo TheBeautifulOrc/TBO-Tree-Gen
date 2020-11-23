@@ -13,20 +13,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Compiler 
+# Compiler
 CC := g++
 CC_OPTIONS := -Wall -shared -std=c++11 -fPIC -pipe -fvisibility=hidden
 # Filed included during compilation
-INCLUDE := $(shell python3 -m pybind11 --inlcudes)
+INCLUDE := $(shell python3.7m -m pybind11 --includes) -I/usr/include/eigen3
 # Directories
 SRC_DIR := ./cpp_src
 OUT_DIR := ./cpp_bin
 # Sourcecode
 SRC := $(shell find $(SRC_DIR) -name '*.cpp')
+# Python extension suffix
+PY_SUFF := .cpython-37m-x86_64-linux-gnu.so
 # Output Python module
-OUT := $(OUT_DIR)/TreeGenModule$(shell python3-config --extension-suffix)
+OUT := $(OUT_DIR)/TreeGenModule$(PY_SUFF)
 
-test_build: 
+test_build:
 	$(CC) $(CC_OPTIONS) $(INCLUDE) -o $(OUT) $(SRC)
 
 clean:

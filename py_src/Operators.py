@@ -20,6 +20,7 @@ import mathutils
 # Debug
 import os
 import time
+import sys
 
 from bpy.types import Operator
 from mathutils import Vector
@@ -27,6 +28,7 @@ from .TreeNodes import TreeNode, TreeNodeContainer
 from .SpaceColonialization import grow_trees
 from .TreeObjects import TreeObject
 from .Utility import get_points_in_object
+from ..cpp_bin.TreeGenModule import TreeNode as TN
 
 class CreateTree(Operator):
     """Operator that creates a pseudo-random, realistic looking tree"""
@@ -47,9 +49,11 @@ class CreateTree(Operator):
             and (tree_data.sc_d_i > tree_data.sc_d_k or tree_data.sc_d_i == 0)
         )
 
-    def invole(self, context, event):
+    def invoke(self, context, event):
         return self.execute(context)
 
+    tn = TN(np.array([0.0,0.0,0.0]), 123456789, [1,2,3])
+    
     def execute(self, context):
         # Debug information
         # TODO: Remove debugging overhead
