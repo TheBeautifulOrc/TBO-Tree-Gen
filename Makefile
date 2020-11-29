@@ -15,21 +15,28 @@
 
 # Compiler
 CC := g++
-CC_OPTIONS := -Wall -shared -std=c++11 -fPIC -pipe -fvisibility=hidden
+CC_options := -Wall -shared -std=c++11 -fPIC -pipe -fvisibility=hidden
 # Filed included during compilation
-INCLUDE := $(shell python3.7m -m pybind11 --includes) -I/usr/include/eigen3
+3.7_include := $(shell python3.7m -m pybind11 --includes) -I/usr/include/eigen3
+3.8_include := $(shell python3.8 -m pybind11 --includes) -I/usr/include/eigen3
 # Directories
-SRC_DIR := ./cpp_src
-OUT_DIR := ./cpp_bin
+src_dir := ./cpp_src
+out_dir := ./cpp_bin
 # Sourcecode
-SRC := $(shell find $(SRC_DIR) -name '*.cpp')
+src := $(shell find $(src_dir) -name '*.cpp')
 # Python extension suffix
-PY_SUFF := .cpython-37m-x86_64-linux-gnu.so
+3.7_py_suff := .cpython-37m-x86_64-linux-gnu.so
+3.8_py_suff := .cpython-38-x86_64-linux-gnu.so
 # Output Python module
-OUT := $(OUT_DIR)/TreeGenModule$(PY_SUFF)
+3.7_out := $(out_dir)/TreeGenModule$(3.7_py_suff)
+3.8_out := $(out_dir)/TreeGenModule$(3.8_py_suff)
 
 test_build:
-	$(CC) $(CC_OPTIONS) $(INCLUDE) -o $(OUT) $(SRC)
+	$(CC) $(CC_options) $(3.8_include) -o $(3.8_out) $(src)
+
+build_all:
+	$(CC) $(CC_options) $(3.7_include) -o $(3.7_out) $(src)
+	$(CC) $(CC_options) $(3.8_include) -o $(3.8_out) $(src)
 
 clean:
-	rm $(OUT)
+	rm $(out_dir)/*.so

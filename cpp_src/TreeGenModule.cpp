@@ -19,6 +19,7 @@
 #include <pybind11/stl_bind.h>
 #include <Eigen/Core>
 #include <string>
+#include <vector>
 #include "TreeNodes.h"
 #include "MeshGeneration.h"
 
@@ -29,10 +30,9 @@ PYBIND11_MAKE_OPAQUE(std::vector<TreeNode>);
 
 PYBIND11_MODULE(TreeGenModule, m)
 {
-    py::bind_vector<std::vector<TreeNode>> (m, "TreeNodeVector");
-
+    py::bind_vector<std::vector<TreeNode>> (m, "TreeNodeContainer");
     py::class_<TreeNode> (m, "TreeNode")
-        .def(py::init<Eigen::Vector3d, ulong, std::vector<uint>>())
+        .def(py::init<Eigen::Vector3d, ulong, std::vector<uint>>(), "_location"_a, "_tree_id"_a, "_child_indices"_a = std::vector<uint>())
         .def
         (
             "__repr__", [](const TreeNode& t)
@@ -56,11 +56,8 @@ PYBIND11_MODULE(TreeGenModule, m)
         .def_readonly("weight_factor", &TreeNode::weight_factor)
         .def_readwrite("child_indices", &TreeNode::child_indices);
 
-    py::class_<TreeNodeContainer> (m, "TreeNodeContainer")
-        .def(py::init<std::vector<TreeNode>*>())
-        .def_readwrite("nodes", &TreeNodeContainer::nodes)
-        .def("calculate_weights", &TreeNodeContainer::calculate_weights)
-        .def("grow_nodes", &TreeNodeContainer::grow_nodes)
-        .def("separate_by_id", &TreeNodeContainer::separate_by_id)
-        .def("reduce_nodes", &TreeNodeContainer::reduce_nodes);
+    m.def("calculate_weights", &calculate_weights);
+    m.def("grow_nodes", &grow_nodes);
+    m.def("separate_by_id", &separate_by_id);
+    m.def("reduce_nodes", &reduce_nodes);
 }

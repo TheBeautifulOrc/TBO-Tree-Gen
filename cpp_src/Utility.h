@@ -15,26 +15,13 @@
 
 #pragma once
 
-#include <Eigen/Core>
 #include <vector>
+#include <Eigen/Core>
 
-class TreeNode
-{
-    // Members
-    public:
-    Eigen::Vector3d location;
-    ulong tree_id;
-    std::vector<uint> child_indices;
-    uint weight;
-    double weight_factor;
+bool is_close(double a, double b);
 
-    // Functions
-    public:
-    TreeNode(Eigen::Vector3d _location, ulong _tree_id, std::vector<uint> _child_indices = std::vector<uint>());
-};
+void find_nearest_neighbor(const Eigen::MatrixX3d& p_matr, const Eigen::Vector3d& query_pt, size_t& res_index, double& res_distance, uint leaf_size = 10);
 
-using TreeNodeContainer = std::vector<TreeNode>;
-void calculate_weights(TreeNodeContainer& nodes);
-void grow_nodes(TreeNodeContainer& nodes, Eigen::Ref<Eigen::MatrixX3d> p_attr, double D, uint d_i_fac, uint d_k_fac, uint max_iter);
-TreeNodeContainer separate_by_id(TreeNodeContainer& nodes, ulong id);
-void reduce_nodes(TreeNodeContainer& nodes, double reduction_angle);
+void find_n_nearest_neighbors(const Eigen::MatrixX3d& p_matr, const Eigen::Vector3d& query_pt, std::vector<size_t>& res_indices, std::vector<double>& res_distances, uint n_nearest = 2, uint leaf_size = 10);
+
+Eigen::Vector3d calc_growth_direction(const Eigen::Vector3d& old_node_loc, const std::vector<Eigen::Vector3d>& attr_points);

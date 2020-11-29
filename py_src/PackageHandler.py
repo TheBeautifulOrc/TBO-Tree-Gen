@@ -19,7 +19,7 @@ import importlib.util as ilu
 import subprocess
 
 # Blender's Python executable
-pybin = bpy.app.binary_path_python
+pybin = sys.executable
 
 def _add_user_site():
     # Locate users site-packages (writable)
