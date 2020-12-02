@@ -18,10 +18,6 @@
 #include <vector>
 #include <Eigen/Core>
 
-bool is_close(double a, double b);
-
-void find_nearest_neighbor(const Eigen::MatrixX3d& p_matr, const Eigen::Vector3d& query_pt, size_t& res_index, double& res_distance, uint leaf_size = 10);
-
-void find_n_nearest_neighbors(const Eigen::MatrixX3d& p_matr, const Eigen::Vector3d& query_pt, std::vector<size_t>& res_indices, std::vector<double>& res_distances, uint n_nearest = 2, uint leaf_size = 10);
+bool is_close(const double& a, const double& b);
 
 Eigen::Vector3d calc_growth_direction(const Eigen::Vector3d& old_node_loc, const std::vector<Eigen::Vector3d>& attr_points);

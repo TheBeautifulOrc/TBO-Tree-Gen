@@ -78,10 +78,9 @@ class CreateTree(Operator):
         all_tree_nodes.extend([TreeNode(obj.location, id(obj)) for obj in sel])
         p_attr = np.asfortranarray(p_attr)
         grow_nodes(all_tree_nodes, p_attr, tree_data.sc_D, tree_data.sc_d_i, tree_data.sc_d_k, tree_data.sc_n_iter)
-        [print(n) for n in all_tree_nodes]
         
-        # all_tree_nodes = grow_trees(tree_data, sel, p_attr)
         # ### Separate trees
+        # all_tree_nodes = grow_trees(tree_data, sel, p_attr)
         # sorted_trees = []
         # sorted_trees.extend([TreeObject(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])
         

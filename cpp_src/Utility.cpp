@@ -15,54 +15,13 @@
 
 #include "Utility.h"
 #include <cmath>
-#include <tuple>
-#include <nanoflann.hpp>
 
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
-using nanoflann::KDTreeEigenMatrixAdaptor;
-using nanoflann::metric_L2;
-using nanoflann::KNNResultSet;
-using nanoflann::SearchParams;
 
-bool is_close(double a, double b)
+bool is_close(const double& a, const double& b)
 {
     return (std::abs(a-b) < __DBL_EPSILON__);
-}
-
-// Nearest neighbor search
-const size_t dim = 3;   // Search for 3D data
-using kdt = KDTreeEigenMatrixAdaptor<MatrixX3d, dim, metric_L2>;
-
-// Find single nearest neighbor
-void find_nearest_neighbor(const Eigen::MatrixX3d& p_matr, const Eigen::Vector3d& query_pt, size_t& res_index, double& res_distance, uint leaf_size)
-{
-    // Create KDTree
-    kdt matr_index(dim, std::ref(p_matr), leaf_size);
-    // Query
-    KNNResultSet<double> resultSet(1);
-    resultSet.init(&res_index, &res_distance);
-    matr_index.index->findNeighbors(resultSet, &query_pt[0], SearchParams(10));
-    // Take square-root of squared distance
-    res_distance = std::sqrt(res_distance);
-}
-
-// Find n-nearest neighbors
-void find_n_nearest_neighbors(const MatrixX3d& p_matr, const Vector3d& query_pt, std::vector<size_t>& res_indices, std::vector<double>& res_distances, uint leaf_size, uint n_nearest)
-{
-    // Create KDTree
-    kdt matr_index(dim, std::ref(p_matr), leaf_size);
-    // Query
-    res_indices = std::vector<size_t>(n_nearest);
-    res_distances = std::vector<double>(n_nearest);
-    KNNResultSet<double> resultSet(n_nearest);
-    resultSet.init(&res_indices[0], &res_distances[0]);
-    matr_index.index->findNeighbors(resultSet, &query_pt[0], SearchParams(10));
-    // Take square-root of squared distances
-    for(size_t e = 0; e < res_distances.size(); e++)
-    {
-        res_distances[e] = sqrt(res_distances[e]);
-    }
 }
 
 // Calculate normalized vector pointing in the direction of the next growth-step
