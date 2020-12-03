@@ -35,6 +35,6 @@ class TreeNode
 
 using TreeNodeContainer = std::vector<TreeNode>;
 void calculate_weights(TreeNodeContainer& nodes);
-void grow_nodes(TreeNodeContainer& nodes, Eigen::Ref<Eigen::MatrixX3d> p_attr, double D, uint d_i_fac, uint d_k_fac, uint max_iter);
-TreeNodeContainer separate_by_id(TreeNodeContainer& nodes, ulong id);
-void reduce_nodes(TreeNodeContainer& nodes, double reduction_angle);
+void grow_nodes(TreeNodeContainer& nodes, Eigen::Ref<Eigen::MatrixX3d> p_attr, const double& D, const uint& d_i_fac, const uint& d_k_fac, uint max_iter);
+TreeNodeContainer separate_by_id(TreeNodeContainer& nodes, const ulong& id);
+void reduce_nodes(TreeNodeContainer& nodes, const double& reduction_angle);

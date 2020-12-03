@@ -52,6 +52,8 @@ if "bpy" in locals():
     importlib.reload(Panels)
     from .py_src import TreeObjects
     importlib.reload(TreeObjects)
+    from .py_src import MeshGenration
+    importlib.reload(MeshGenration)
     from .py_src import Operators
     importlib.reload(Operators)
 

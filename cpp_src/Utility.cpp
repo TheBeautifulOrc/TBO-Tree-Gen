@@ -19,11 +19,6 @@
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
 
-bool is_close(const double& a, const double& b)
-{
-    return (std::abs(a-b) < __DBL_EPSILON__);
-}
-
 // Calculate normalized vector pointing in the direction of the next growth-step
 Vector3d calc_growth_direction(const Vector3d& old_node_loc, const std::vector<Vector3d>& attr_points)
 {

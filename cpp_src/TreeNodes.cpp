@@ -44,25 +44,26 @@ TreeNode::TreeNode(Vector3d _location, ulong _tree_id, std::vector<uint> _child_
     weight_factor = 0.0;
 }
 
+/*
+Calculate nodes weight and weight factor. 
+The weight factor determines the radius of the final tree at the points defined by the nodes.
+*/
 void calculate_weights(TreeNodeContainer& nodes)
 {
-    // Ensure that all weights are set back to 1 at first
-    for(TreeNode node : nodes)
-    {
-        node.weight = 1;
-    }
     uint n_nodes = nodes.size();
-    // Calculate weights of each node
-    for(uint n = n_nodes - 1; n >= 0; n--)
+    // Calculate the weight of each node by adding up the weight of all its (recursive) children.
+    for(int n = n_nodes - 1; n >= 0; n--)
     {
-        TreeNode& node = nodes[n];
+        TreeNode& node = nodes.at(n);
         uint new_weight = 1;
-        for(uint child_ind : node.child_indices)
+        for(uint& child_ind : node.child_indices)
         {
-            new_weight += nodes[child_ind].weight;
+            new_weight += nodes.at(child_ind).weight;
         }
         node.weight = new_weight;
-        node.weight_factor = static_cast<double>(new_weight) / static_cast<double>(n_nodes);
+        // The weight factor is the square root of the nodes weight 
+        // divided by the trees overall weight (1 at the base of the tree). 
+        node.weight_factor = std::sqrt(static_cast<double>(new_weight) / static_cast<double>(n_nodes));
     }
 }
 
@@ -70,7 +71,7 @@ void calculate_weights(TreeNodeContainer& nodes)
 Take TreeNodeContainer with initial nodes, attraction points and growth variebles
 to iteratively grow trees.
 */
-void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, double D, uint d_i_fac, uint d_k_fac, uint max_iter)
+void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, const double& D, const uint& d_i_fac, const uint& d_k_fac, uint max_iter)
 {
     double d_i = D * d_i_fac;
     double d_k = D * d_k_fac;
@@ -100,8 +101,8 @@ void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, double D, uint 
         matr_index.index->buildIndex();
 
         // For each node...
-        size_t n_nodes = nodes.size();
-        for(size_t n = 0; n < n_nodes; n++)
+        uint n_nodes = nodes.size();
+        for(uint n = 0; n < n_nodes; n++)
         {
             TreeNode& node = nodes[n];
             // Find nearest attraction point
@@ -134,18 +135,18 @@ void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, double D, uint 
     // Flag indicates whether the growth is complete and thus should stop
     bool crowns_grown;
     // Current iteration
-    size_t curr_iter = 0;
+    uint curr_iter = 0;
     do
     {
         // Growth will be stopped after this iteration (unless there is reason to continue)
         crowns_grown = true;
         // Number of currently existing nodes
-        size_t n_nodes = nodes.size();
+        uint n_nodes = nodes.size();
         // Which attraction points influence which nodes 
-        std::map<size_t, std::vector<size_t>> influence_map;
+        std::map<uint, std::vector<uint>> influence_map;
         // Organize node locations into matrix
         MatrixX3d node_locs(n_nodes, 3);
-        for(size_t n = 0; n < n_nodes; n++)
+        for(uint n = 0; n < n_nodes; n++)
         {
             node_locs.row(n) = nodes.at(n).location;
         }
@@ -160,7 +161,7 @@ void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, double D, uint 
         iterations. 
         */
         // For each (valid) attraction point...
-        for(size_t ap = 0; ap < p_attr.rows(); ap++)
+        for(uint ap = 0; ap < p_attr.rows(); ap++)
         {
             if(p_attr_mask[ap])
             {
@@ -225,13 +226,107 @@ void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, double D, uint 
     } while (!crowns_grown);
 }
 
-TreeNodeContainer separate_by_id(TreeNodeContainer& nodes, ulong id)
+TreeNodeContainer separate_by_id(TreeNodeContainer& nodes, const ulong& id)
 {
-    TreeNodeContainer tnc;
-    return tnc;
+    // Create new container
+    TreeNodeContainer new_nodes;
+    // Keep track of the correspondence between nodes in old and new container
+    std::map<uint, uint> correspondence;
+    // Check each node for its tree id and add it to the new container if the id matches
+    uint new_counter = 0;
+    for(uint n = 0; n < nodes.size(); n++)
+    {
+        TreeNode& node = nodes.at(n);
+        if(node.tree_id == id)
+        {
+            new_nodes.push_back(node);
+            correspondence[n] = new_counter;
+            new_counter++;
+        }
+    }
+    // Update child indices
+    for(TreeNode& node : new_nodes)
+    {
+        for(uint& c_ind : node.child_indices)
+        {
+            c_ind = correspondence[c_ind];
+        }
+    }
+    return new_nodes;
 }
 
-void reduce_nodes(TreeNodeContainer& nodes, double reduction_angle)
+void reduce_nodes(TreeNodeContainer& nodes, const double& reduction_angle)
 {
-
+    size_t n_nodes = nodes.size();
+    // Which nodes will survive
+    std::vector<bool> survivors(n_nodes, true);
+    // Map each index of a node that will survive 
+    // to the index it would have after all deletions
+    std::map<uint, uint> correspondences;
+    correspondences[0] = 0; // Root node will always be preserved
+    // Parent index of each node
+    std::vector<uint> parent_indices(n_nodes, 0);
+    for(uint n = 0; n < n_nodes; n++)
+    {
+        TreeNode& node = nodes.at(n);
+        for(uint& c_ind : node.child_indices)
+        {
+            parent_indices.at(c_ind) = n;
+        }
+    }
+    
+    // Remove superfluous nodes and adjust their parent's child indices
+    uint surviver_counter = 1;  // Count nodes that won't be killed
+    for(uint n = 1; n < n_nodes; n++)
+    {
+        // Current node
+        TreeNode& node = nodes.at(n);
+        // Only nodes with one child (and one parent) can be removed (no leaf-nodes or junctions)
+        if(node.child_indices.size() == 1)
+        {
+            // Parent and (only) child of this node
+            uint& parent_index = parent_indices.at(n);
+            uint& child_index = node.child_indices.at(0);
+            TreeNode& parent = nodes.at(parent_index);
+            TreeNode& child = nodes.at(child_index);
+            // Direction vectors of this nodes connections
+            Vector3d vec_1 = (node.location - parent.location).normalized();
+            Vector3d vec_2 = (child.location - node.location).normalized();
+            // If angle between the two vectors is smaller than reduction angle...
+            if(angle(vec_1, vec_2) < reduction_angle)
+            {
+                survivors.at(n) = false;
+                // Replace parents reference to node with child index
+                std::vector<uint>& child_inds = parent.child_indices;
+                auto it = std::remove(child_inds.begin(), child_inds.end(), n);
+                uint index_to_replace = it - child_inds.begin();
+                child_inds.at(index_to_replace) = child_index;
+                // Replace childs reference to node with parent index
+                parent_indices.at(child_index) = parent_index;
+            }
+        }
+        // If the node survived, add it to the correspondence table
+        if(survivors.at(n))
+        {
+            correspondences[n] = surviver_counter;
+            surviver_counter++;
+        }
+    }
+    // Correct the indices of the surviving nodes
+    for(int n = n_nodes - 1; n >= 0; n--)
+    {
+        if(survivors.at(n))
+        {
+            TreeNode& node = nodes.at(n);
+            for(uint& c_ind : node.child_indices)
+            {
+                c_ind = correspondences[c_ind];
+            }
+        }
+        else
+        {
+            // Remove the original node from the container
+            nodes.erase(nodes.begin() + n);
+        }
+    }
 }

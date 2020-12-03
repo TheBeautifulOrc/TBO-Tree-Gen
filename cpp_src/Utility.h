@@ -18,6 +18,10 @@
 #include <vector>
 #include <Eigen/Core>
 
-bool is_close(const double& a, const double& b);
+inline bool is_close(const double& a, const double& b) { return (std::abs(a-b) < __DBL_EPSILON__); }
+inline bool leq(const double& a, const double& b) { return (a < b) | is_close(a,b); }
+inline bool geq(const double& a, const double& b) { return (a > b) | is_close(a,b); }
+
+inline float angle(const Eigen::Vector3d& a, const Eigen::Vector3d& b) { return std::acos(a.dot(b) / (a.norm()*b.norm())); }
 
 Eigen::Vector3d calc_growth_direction(const Eigen::Vector3d& old_node_loc, const std::vector<Eigen::Vector3d>& attr_points);

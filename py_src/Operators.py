@@ -26,11 +26,10 @@ from bpy.types import Operator
 from mathutils import Vector
 import numpy as np
 from .TreeProperties import TreeProperties
-# from .TreeNodes import TreeNode, TreeNodeContainer
-# from .SpaceColonialization import grow_trees
 from .TreeObjects import TreeObject
 from .Utility import get_points_in_object
-from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes
+from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes, separate_by_id, reduce_nodes, calculate_weights
+from .MeshGenration import genrate_skeletal_mesh
 
 class CreateTree(Operator):
     """Operator that creates a pseudo-random, realistic looking tree"""
@@ -79,19 +78,16 @@ class CreateTree(Operator):
         p_attr = np.asfortranarray(p_attr)
         grow_nodes(all_tree_nodes, p_attr, tree_data.sc_D, tree_data.sc_d_i, tree_data.sc_d_k, tree_data.sc_n_iter)
         
-        # ### Separate trees
-        # all_tree_nodes = grow_trees(tree_data, sel, p_attr)
-        # sorted_trees = []
-        # sorted_trees.extend([TreeObject(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])
-        
-        # for tree in sorted_trees:
-        #     ### Calculate weights
-        #     tree.nodes.calculate_weights()
-        #     ### Reduce unnecessary nodes 
-        #     tree.nodes.reduce_nodes(tree_data.nr_max_angle)
-        #     ### Generate mesh
-        #     if tree_data.pr_skeletons_only:
-        #         tree.generate_skeltal_mesh() # Generate skeleton
+        ### Separate trees
+        for obj in sel:
+            tnc = separate_by_id(all_tree_nodes, id(obj))
+            ### Calculate weights
+            calculate_weights(tnc)
+            ### Reduce unnecessary nodes 
+            reduce_nodes(tnc, tree_data.nr_max_angle)
+            ### Generate mesh
+            if tree_data.pr_skeletons_only:
+                genrate_skeletal_mesh(obj, tnc)
         #     # If not in preview-mode create mesh with volume
         #     else:
         #         tree.generate_mesh()
