@@ -19,6 +19,8 @@
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
 
+const double root_2 = std::sqrt(2);
+
 // Calculate normalized vector pointing in the direction of the next growth-step
 Vector3d calc_growth_direction(const Vector3d& old_node_loc, const std::vector<Vector3d>& attr_points)
 {
@@ -33,7 +35,7 @@ Vector3d calc_growth_direction(const Vector3d& old_node_loc, const std::vector<V
     }
     // Combined direction will only be returned if the added vectors aren't too divergent
     // Else branching will be forced
-    if(combined_dir.sum() >= 2)
+    if(combined_dir.norm() >= root_2)
     {
         return combined_dir.normalized();
     }

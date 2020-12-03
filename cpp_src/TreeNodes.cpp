@@ -73,10 +73,9 @@ to iteratively grow trees.
 */
 void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, const double& D, const uint& d_i_fac, const uint& d_k_fac, uint max_iter)
 {
-    double d_i = D * d_i_fac;
+    // Influence radius of zero means infinite radius
+    double d_i = (d_i_fac == 0) ? INFINITY : D * d_i_fac;
     double d_k = D * d_k_fac;
-    // Influence radius of zero means infinite radius 
-    d_i = is_close(d_i, 0.0) ? INFINITY : d_i;
     // Similarly, setting max_iterations to zero means unlimited iterations
     max_iter = (max_iter==0) ? INFINITY : max_iter;
 
@@ -94,7 +93,7 @@ void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, const double& D
     If influence radius is not zero, 
     grow stems between initial tree-nodes and attraction-point-cloud where necessary. 
     */
-    if(d_i != INFINITY)
+    if(d_i < INFINITY)
     {
         // Generate KDTree
         ref_kdt matr_index(3, std::ref(p_attr), 10);
