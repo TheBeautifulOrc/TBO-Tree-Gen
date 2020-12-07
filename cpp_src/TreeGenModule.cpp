@@ -60,4 +60,5 @@ PYBIND11_MODULE(TreeGenModule, m)
     m.def("grow_nodes", &grow_nodes);
     m.def("separate_by_id", &separate_by_id);
     m.def("reduce_nodes", &reduce_nodes);
+    m.def("generate_mesh", &generate_mesh);
 }

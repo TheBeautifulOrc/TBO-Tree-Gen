@@ -18,13 +18,8 @@
 #include <cmath>
 #include <vector>
 #include <map>
-#include <iostream> // Debug
 #include <Eigen/Dense>
 #include <nanoflann.hpp>
-
-// Debug
-using std::cout;
-using std::endl;
 
 using Eigen::Vector3d;
 using Eigen::MatrixX3d;

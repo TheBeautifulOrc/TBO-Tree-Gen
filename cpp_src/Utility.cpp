@@ -15,9 +15,11 @@
 
 #include "Utility.h"
 #include <cmath>
+#include "../cpp_extern/Splines/spline.h"
 
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
+using Spline = spline;  // Capital notation for objects is a lot nicer
 
 const double root_2 = std::sqrt(2);
 
@@ -43,4 +45,41 @@ Vector3d calc_growth_direction(const Vector3d& old_node_loc, const std::vector<V
     {
         return (attr_points.at(0) - old_node_loc).normalized();
     }
+}
+
+Spline3d::Spline3d(std::vector<const Vector3d*>& _points) : points(_points)
+{
+    uint n_points = points.size();
+    // Function variable of all three splines
+    w = std::vector<double>(n_points);
+    w.at(0) = 0.0f;
+    for(uint p = 1; p < n_points; p++)
+    {
+        double dist = (*points.at(p) - *points.at(p-1)).norm();
+        w.at(p) = dist + w.at(p-1);
+    }
+    // Deconstruct list of vectors into lists of scalars
+    std::vector<double> x(n_points), y(n_points), z(n_points);
+    for(uint p = 0; p < n_points; p++)
+    {
+        const Vector3d* curr_point = points.at(p);
+        x.at(p) = curr_point->x();
+        y.at(p) = curr_point->y();
+        z.at(p) = curr_point->z();
+    }
+    x_spline->set_points(w, x);
+    y_spline->set_points(w, y);
+    z_spline->set_points(w, z);
+}
+
+double Spline3d::to_w(const double& loc_pos, const uint& seg)
+{
+    const double& base_val = w.at(seg);
+    double offset = (w.at(seg+1) - w.at(seg)) * loc_pos;
+    return base_val + offset;
+}
+
+Vector3d Spline3d::evaluate(const double& pos)
+{
+    return Vector3d((*x_spline)(pos), (*y_spline)(pos), (*z_spline)(pos));
 }

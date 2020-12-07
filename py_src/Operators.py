@@ -28,7 +28,7 @@ import numpy as np
 from .TreeProperties import TreeProperties
 from .TreeObjects import TreeObject
 from .Utility import get_points_in_object
-from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes, separate_by_id, reduce_nodes, calculate_weights
+from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes, separate_by_id, reduce_nodes, calculate_weights, generate_mesh
 from .MeshGenration import genrate_skeletal_mesh
 
 class CreateTree(Operator):
@@ -88,9 +88,9 @@ class CreateTree(Operator):
             ### Generate mesh
             if tree_data.pr_skeletons_only:
                 genrate_skeletal_mesh(obj, tnc)
-        #     # If not in preview-mode create mesh with volume
-        #     else:
-        #         tree.generate_mesh()
+            # If not in preview-mode create mesh with volume
+            else:
+                generate_mesh(tnc, tree_data.sk_base_radius, tree_data.sk_min_radius, tree_data.sk_loop_distance, 0)
             
         # Reset active object
         context.view_layer.objects.active = act
