@@ -15,11 +15,10 @@
 
 #include "Utility.h"
 #include <cmath>
-#include "../cpp_extern/Splines/spline.h"
+#include "../cpp_extern/Splines/Spline.h"
 
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
-using Spline = spline;  // Capital notation for objects is a lot nicer
 
 const double root_2 = std::sqrt(2);
 

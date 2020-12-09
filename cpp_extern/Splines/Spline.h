@@ -1,7 +1,7 @@
 /*
- * spline.h
+ * Spline.h
  *
- * simple cubic spline interpolation library without external
+ * simple cubic Spline interpolation library without external
  * dependencies
  *
  * ---------------------------------------------------------------------
@@ -66,8 +66,8 @@ public:
 };
 
 
-// spline interpolation
-class spline
+// Spline interpolation
+class Spline
 {
 public:
     enum bd_type {
@@ -79,7 +79,7 @@ private:
     std::vector<double> m_x,m_y;            // x,y coordinates of points
     // interpolation parameters
     // f(x) = a*(x-x_i)^3 + b*(x-x_i)^2 + c*(x-x_i) + y_i
-    std::vector<double> m_a,m_b,m_c;        // spline coefficients
+    std::vector<double> m_a,m_b,m_c;        // Spline coefficients
     double  m_b0, m_c0;                     // for left extrapol
     bd_type m_left, m_right;
     double  m_left_value, m_right_value;
@@ -87,7 +87,7 @@ private:
 
 public:
     // set default boundary condition to be zero curvature at both ends
-    spline(): m_left(second_deriv), m_right(second_deriv),
+    Spline(): m_left(second_deriv), m_right(second_deriv),
         m_left_value(0.0), m_right_value(0.0),
         m_force_linear_extrapolation(false)
     {
@@ -255,11 +255,11 @@ std::vector<double> band_matrix::lu_solve(const std::vector<double>& b,
 
 
 
-// spline implementation
+// Spline implementation
 // -----------------------
 
-void spline::set_boundary(spline::bd_type left, double left_value,
-                          spline::bd_type right, double right_value,
+void Spline::set_boundary(Spline::bd_type left, double left_value,
+                          Spline::bd_type right, double right_value,
                           bool force_linear_extrapolation)
 {
     assert(m_x.size()==0);          // set_points() must not have happened yet
@@ -271,7 +271,7 @@ void spline::set_boundary(spline::bd_type left, double left_value,
 }
 
 
-void spline::set_points(const std::vector<double>& x,
+void Spline::set_points(const std::vector<double>& x,
                         const std::vector<double>& y, bool cubic_spline)
 {
     assert(x.size()==y.size());
@@ -284,7 +284,7 @@ void spline::set_points(const std::vector<double>& x,
         assert(m_x[i]<m_x[i+1]);
     }
 
-    if(cubic_spline==true) { // cubic spline interpolation
+    if(cubic_spline==true) { // cubic Spline interpolation
         // setting up the matrix and right hand side of the equation system
         // for the parameters b[]
         band_matrix A(n,1,1);
@@ -296,12 +296,12 @@ void spline::set_points(const std::vector<double>& x,
             rhs[i]=(y[i+1]-y[i])/(x[i+1]-x[i]) - (y[i]-y[i-1])/(x[i]-x[i-1]);
         }
         // boundary conditions
-        if(m_left == spline::second_deriv) {
+        if(m_left == Spline::second_deriv) {
             // 2*b[0] = f''
             A(0,0)=2.0;
             A(0,1)=0.0;
             rhs[0]=m_left_value;
-        } else if(m_left == spline::first_deriv) {
+        } else if(m_left == Spline::first_deriv) {
             // c[0] = f', needs to be re-expressed in terms of b:
             // (2b[0]+b[1])(x[1]-x[0]) = 3 ((y[1]-y[0])/(x[1]-x[0]) - f')
             A(0,0)=2.0*(x[1]-x[0]);
@@ -310,12 +310,12 @@ void spline::set_points(const std::vector<double>& x,
         } else {
             assert(false);
         }
-        if(m_right == spline::second_deriv) {
+        if(m_right == Spline::second_deriv) {
             // 2*b[n-1] = f''
             A(n-1,n-1)=2.0;
             A(n-1,n-2)=0.0;
             rhs[n-1]=m_right_value;
-        } else if(m_right == spline::first_deriv) {
+        } else if(m_right == Spline::first_deriv) {
             // c[n-1] = f', needs to be re-expressed in terms of b:
             // (b[n-2]+2b[n-1])(x[n-1]-x[n-2])
             // = 3 (f' - (y[n-1]-y[n-2])/(x[n-1]-x[n-2]))
@@ -362,7 +362,7 @@ void spline::set_points(const std::vector<double>& x,
         m_b[n-1]=0.0;
 }
 
-double spline::operator() (double x) const
+double Spline::operator() (double x) const
 {
     size_t n=m_x.size();
     // find the closest point m_x[idx] < x, idx=0 even if x<m_x[0]
