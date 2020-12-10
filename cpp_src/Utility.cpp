@@ -46,8 +46,19 @@ Vector3d calc_growth_direction(const Vector3d& old_node_loc, const std::vector<V
     }
 }
 
-Spline3d::Spline3d(std::vector<const Vector3d*>& _points) : points(_points)
+Spline3d::Spline3d() 
 {
+    this->x_spline = std::unique_ptr<Spline>(new Spline);
+    this->y_spline = std::unique_ptr<Spline>(new Spline);
+    this->z_spline = std::unique_ptr<Spline>(new Spline);
+}
+
+Spline3d::~Spline3d() {}
+
+void Spline3d::init(std::vector<const Vector3d*>& _points)
+{
+    // Initialize members
+    this->points = _points;
     uint n_points = points.size();
     // Function variable of all three splines
     w = std::vector<double>(n_points);

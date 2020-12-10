@@ -26,7 +26,7 @@ using std::endl;
 
 using Eigen::Vector3d;
 
-std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generate_mesh(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode)
+std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode)
 {
     // General purpose values
     const uint n_nodes = tnc.size();
@@ -93,11 +93,16 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     */
     // Which limbs contain which nodes as starts/ends
     std::map<uint, std::vector<uint>> start_nodes, end_nodes;
-    for(uint l = 0; l < limbs.size(); l++)
+    // Table showing if a limb ends on a leaf
+    std::vector<bool> leaf_table(n_limbs);
+    for(uint l = 0; l < n_limbs; l++)
     {
         const std::vector<uint>& curr_limb = limbs.at(l);
-        start_nodes[curr_limb.front()].push_back(l);
-        end_nodes[curr_limb.back()].push_back(l);
+        const uint& front = curr_limb.front();
+        const uint& back = curr_limb.back();
+        start_nodes[front].push_back(l);
+        end_nodes[back].push_back(l);
+        leaf_table.at(l) = (tnc.at(back).child_indices.size() == 0);
     }
     // Combine the two maps into one comprehensive map
     std::map<uint, std::vector<uint>> joint_map;
@@ -121,11 +126,13 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     /*
     Calculate points in between connected nodes, necessary to satisfy desired loop distance
     */
-    std::vector<std::vector<Vector3d>> node_points(n_limbs);
+    std::vector<std::vector<Vector3d>> centroids(n_limbs);
     for(uint l = 0; l < n_limbs; l++)
     {
         // The current limb
         std::vector<uint>& limb = limbs.at(l);
+        // Container for resulting points
+        std::vector<Vector3d>& lc = centroids.at(l);
         // Number of nodes in this limb
         const uint n_limb_nodes = limb.size();
         // The number of sections in between nodes 
@@ -138,8 +145,6 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
         }
         // Difference vectors between neighboring nodes
         std::vector<Vector3d> diffs(n_sections);
-        // Distances betwenn neighboring nodes
-        std::vector<double> dists(n_sections);
         // Positions of points in between nodes (in '(0,1)')
         std::vector<std::vector<double>> local_positions(n_sections);
         for(uint s = 0; s < n_sections; s++)
@@ -148,8 +153,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
             Vector3d& diff = diffs.at(s);
             diff = *node_locs.at(s+1) - *node_locs.at(s);
             // Distance between nodes
-            double& dist = dists.at(s);
-            dist = diff.norm();
+            double dist = diff.norm();
             // Number of points in between nodes necessary to keep distance
             // between edge loops as close as possible to loop_distance
             uint n_points = static_cast<uint>(std::round(dist/loop_distance)) - 1;
@@ -159,38 +163,72 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
             std::vector<double> section_positions(n_points);
             for(uint p = 0; p < n_points; p++)
             {
-                section_positions.at(p) = offset + (loop_distance * p);
+                section_positions.at(p) = (offset + (loop_distance * p)) / dist;
             }
             local_positions.at(s) = section_positions;
         }
-        // Linear interpolation
-        if(interpolation_mode == 0 || n_sections < 2)
+        
+        /*
+        Interpolation
+        */
+        bool linear_interpolation = (interpolation_mode == 0 || n_sections < 2);
+        // Create 3D-spline interpolating this limb...
+        Spline3d spline;
+        // ... but only perform (costly) initializaiton if necessary
+        if(!linear_interpolation)
         {
-            // For each section of the limb...
-            for(uint s = 0; s < n_sections; s++)
+            spline.init(node_locs);
+        }
+        // For each section of the limb...
+        for(uint s = 0; s < n_sections; s++)
+        {
+            // References to global data structures for better handling 
+            const Vector3d& section_root_node = *node_locs.at(s);
+            // Nodes at the front of sections are always centroids
+            lc.push_back(section_root_node);
+            const std::vector<double>& section_positions = local_positions.at(s);
+            const uint n_section_points = section_positions.size();
+            std::vector<Vector3d> sp(n_section_points);
+            // Linear interpolation
+            if(linear_interpolation)
             {
-                // References to global data structures for better handling 
-                std::vector<Vector3d>& section_points = node_points.at(s);
-                const Vector3d& section_root_node = *node_locs.at(s);
-                const std::vector<double>& section_positions = local_positions.at(s);
-                const uint n_section_points = section_positions.size();
-                // Reassign an appropriately sized list of empty vectors to this section
-                section_points = std::vector<Vector3d>(n_section_points);
                 for(uint p = 0; p < n_section_points; p++)
                 {
                     // Each vector is the sum of the location of the node at the beginning
                     // of this section and the vector pointing to the next node weighted by 
                     // the points position relative to the neighboring nodes 
-                    section_points.at(p) = section_root_node + diffs.at(s) * section_positions.at(p);
+                    sp.at(p) = section_root_node + diffs.at(s) * section_positions.at(p);
                 }
             }
+            // Cubic interpolation
+            else
+            {
+                for(uint p = 0; p < n_section_points; p++)
+                {
+                    // Convert local position and section counter into global position on limb
+                    double w = spline.to_w(section_positions.at(p), s);
+                    // Evaluate the cubic spline at this point
+                    sp.at(p) = spline.evaluate(w);
+                }
+            }
+            // Append results to result variable
+            lc.insert(lc.end(), sp.begin(), sp.end());
         }
-        // Cubic interpolation
-        else
+        // If this limb ends on a leaf node that node is a centroid too
+        if(leaf_table.at(l))
         {
-            // TODO: Implement cubic interpolation
+            lc.push_back(*node_locs.back());
         }
     }
 
-    return std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>>();
+    // Return data to python interface
+    std::vector<Eigen::Vector3d> combined_point_data;
+    // Debug
+    for(auto& limb_points : centroids)
+    {
+        combined_point_data.insert(combined_point_data.end(), limb_points.begin(), limb_points.end());
+    }
+    std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> ret_val;
+    std::get<0>(ret_val) = combined_point_data;
+    return ret_val;
 }

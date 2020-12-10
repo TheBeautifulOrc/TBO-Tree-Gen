@@ -16,6 +16,7 @@
 #pragma once
 
 #include <vector>
+#include <memory>
 #include <Eigen/Core>
 
 inline bool is_close(const double& a, const double& b) { return (std::abs(a-b) < __DBL_EPSILON__); }
@@ -32,13 +33,15 @@ class Spline3d
     // Members
     std::vector<const Eigen::Vector3d*> points;
     std::vector<double> w;
-    Spline* y_spline;
-    Spline* z_spline;
-    Spline* x_spline;
+    std::unique_ptr<Spline> y_spline;
+    std::unique_ptr<Spline> z_spline;
+    std::unique_ptr<Spline> x_spline;
 
     // Methods
     public:
-    Spline3d(std::vector<const Eigen::Vector3d*>& _points);
+    Spline3d();
+    ~Spline3d();
+    void init(std::vector<const Eigen::Vector3d*>& _points);
     double to_w(const double& loc_pos, const uint& seg);
     Eigen::Vector3d evaluate(const double& pos);
     inline std::vector<double> get_w() { return w; };

@@ -17,7 +17,8 @@
 
 import bpy
 import bmesh
-from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer
+from .TreeProperties import TreeProperties
+from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, generate_mesh_data
 
 def genrate_skeletal_mesh(obj : bpy.types.Object, tnc : TreeNodeContainer):
     # Create bmesh-object
@@ -30,6 +31,25 @@ def genrate_skeletal_mesh(obj : bpy.types.Object, tnc : TreeNodeContainer):
     [[bm.edges.new((bm.verts[n], bm.verts[c])) for c in tn.child_indices] for n, tn in enumerate(tnc)]
     bm.edges.index_update()
     bm.edges.ensure_lookup_table()
+    # Overwrite objects mesh data with bmesh data
+    bm.to_mesh(obj.data)
+    # Destroy bmesh
+    bm.free()
+    
+def generate_mesh(obj : bpy.types.Object, tnc : TreeNodeContainer, trd : TreeProperties):
+    # Prepare variables
+    base_radius = trd.sk_base_radius
+    min_radius = trd.sk_min_radius
+    loop_dist = trd.sk_loop_distance
+    interpolation_mode = 0 if trd.sk_interpolation_mode == "LIN" else 1
+    # Call C++ mesh generation function
+    p = generate_mesh_data(tnc, base_radius, min_radius, loop_dist, interpolation_mode)[0]
+    # Create bmesh-object
+    bm = bmesh.new()    # pylint: disable=assignment-from-no-return
+    # Generate vertices from TreeNode locations
+    [bm.verts.new(elem) for elem in p]
+    bm.verts.index_update()
+    bm.verts.ensure_lookup_table()
     # Overwrite objects mesh data with bmesh data
     bm.to_mesh(obj.data)
     # Destroy bmesh
