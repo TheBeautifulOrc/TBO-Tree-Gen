@@ -289,15 +289,16 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
         Matrix3d ref_coords = Matrix3d::Identity();
         for(uint c = 0; c < n_l_centroids; c++)
         {
+            Matrix3d& last_coord_sys = (c == 0) ? ref_coords : l_lcs.at(c-1);
             Matrix3d& curr_coord_sys = l_lcs.at(c);
-            if(is_close(curr_coord_sys.row(0).dot(ref_coords.row(2)), 1))
+            if(is_close(curr_coord_sys.row(0).dot(last_coord_sys.row(2)), 1))
             {
-                curr_coord_sys.row(1) = ref_coords.row(0);
-                curr_coord_sys.row(2) = ref_coords.row(1);
+                curr_coord_sys.row(1) = last_coord_sys.row(0);
+                curr_coord_sys.row(2) = last_coord_sys.row(1);
             }
             else
             {
-                curr_coord_sys.row(1) = ref_coords.row(2).cross(curr_coord_sys.row(0)).normalized();
+                curr_coord_sys.row(1) = last_coord_sys.row(2).cross(curr_coord_sys.row(0)).normalized();
                 curr_coord_sys.row(2) = curr_coord_sys.row(0).cross(curr_coord_sys.row(1)).normalized();
             }
         }
@@ -308,13 +309,13 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     /*
     Sweep square profile along calculated positions
     */
-    std::vector<std::vector<Square>> verts(n_limbs);
+    std::vector<std::vector<Square>> squares(n_limbs);
     for(uint l = 0; l < n_limbs; l++)
     {
         std::vector<Centroid>& l_centroids = centroids.at(l);
         std::vector<Matrix3d>& l_lcs = local_coordinate_systems.at(l);
         uint n_l_squares = l_lcs.size();
-        std::vector<Square>& l_squares = verts.at(l);
+        std::vector<Square>& l_squares = squares.at(l);
         l_squares = std::vector<Square>(n_l_squares);
         for(uint s = 0; s < n_l_squares; s++)
         {
@@ -334,14 +335,12 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     // Return data to python interface
     std::vector<Eigen::Vector3d> combined_point_data;
     // Debug
-    for(auto& l_centroids : centroids)
+    for(auto& l_squares : squares)
     {
-        std::vector<Vector3d> vec(l_centroids.size());
-        for(uint c = 0; c < l_centroids.size(); c++)
+        for(auto& square : l_squares)
         {
-            vec.at(c) = l_centroids.at(c).location;
+            combined_point_data.insert(combined_point_data.end(), square.begin(), square.end());
         }
-        combined_point_data.insert(combined_point_data.end(), vec.begin(), vec.end());
     }
     std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> ret_val;
     std::get<0>(ret_val) = combined_point_data;
