@@ -54,6 +54,7 @@ struct Joint
     std::vector<std::vector<Square>*> starting_limbs;
     // Needs to be a copy, since joints can be defined in between nodes
     Vector3d center_point;
+    Joint() : ending_limb(nullptr) {};
 };
 
 std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode)
@@ -122,15 +123,14 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     /*
     Create map, that stores which limbs are connected through which joints
     */
-    // Map showing which nodes nodes limbs are part of which joint
-    // (First element of each map entry is the end of a limb)
+    // Map showing which limbs are part of which joint
     std::map<uint, std::vector<JointMapEntry>> proto_joint_map; 
+    // Map limb indices to the nodes they start/end with
+    std::map<uint, std::vector<uint>> start_nodes, end_nodes;
     // Table showing if a limb ends on a leaf   
     std::vector<bool> leaf_table(n_limbs);  
     auto create_limb_maps = [&] ()
     {
-        // Map limb indices to the nodes they start/end with
-        std::map<uint, std::vector<uint>> start_nodes, end_nodes;
         for(uint l = 0; l < n_limbs; l++)
         {
             const std::vector<uint>& curr_limb = limb_indices.at(l);
@@ -142,27 +142,27 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
         }
         // For each node that terminates a limb
         for(auto& elem : end_nodes)
-    {
-        const uint& node_ind = elem.first;
-        // Check if the node is a starting point for new limbs
-        const std::vector<uint>& starting_limbs = start_nodes[node_ind];
-        uint n_starting_limbs = starting_limbs.size();
-        if(n_starting_limbs > 0)
         {
-            // The first entry of the combined map is always the limb that gets terminated by this node
-            std::vector<JointMapEntry> curr_joint_map(n_starting_limbs + 1);
-            JointMapEntry& first_entry = curr_joint_map.front();
-            first_entry.limb_index = elem.second.front();
-            first_entry.begins_with_joint = false;
-            // Append the limbs that start at this node
-            for(uint s_node = 0; s_node < n_starting_limbs; s_node++)
+            const uint& node_ind = elem.first;
+            // Check if the node is a starting point for new limbs
+            const std::vector<uint>& starting_limbs = start_nodes[node_ind];
+            uint n_starting_limbs = starting_limbs.size();
+            if(n_starting_limbs > 0)
             {
-                curr_joint_map.at(s_node+1).limb_index = starting_limbs.at(s_node);
+                // The first entry of the combined map is always the limb that gets terminated by this node
+                std::vector<JointMapEntry> curr_joint_map(n_starting_limbs + 1);
+                JointMapEntry& first_entry = curr_joint_map.front();
+                first_entry.limb_index = elem.second.front();
+                first_entry.begins_with_joint = false;
+                // Append the limbs that start at this node
+                for(uint s_node = 0; s_node < n_starting_limbs; s_node++)
+                {
+                    curr_joint_map.at(s_node+1).limb_index = starting_limbs.at(s_node);
+                }
+                // Add generated map to the larger container
+                proto_joint_map[node_ind] = curr_joint_map;
             }
-            // Add generated map to the larger container
-            proto_joint_map[node_ind] = curr_joint_map;
         }
-    }
     };
     create_limb_maps();
 
@@ -369,14 +369,14 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     Convert joint map from map of indices to map of pointers to actual geomety 
     */
     std::map<uint, Joint> joint_map;
-    for(auto joint_it = proto_joint_map.begin(); joint_it != proto_joint_map.end(); joint_it++)
+    for(auto& elem : proto_joint_map)
     {
         Joint new_joint;
-        new_joint.center_point = tnc.at(joint_it->first).location;
-        for(auto& elem : joint_it->second)
+        new_joint.center_point = tnc.at(elem.first).location;
+        for(auto& entry : elem.second)
         {
-            auto limb_address = &squares.at(elem.limb_index);
-            if(elem.begins_with_joint)
+            auto limb_address = &squares.at(entry.limb_index);
+            if(entry.begins_with_joint)
             {
                 new_joint.starting_limbs.push_back(limb_address);
             }
@@ -385,30 +385,132 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                 new_joint.ending_limb = limb_address;
             }
         }
-        joint_map[joint_it->first] = new_joint;
+        joint_map[elem.first] = new_joint;
     }
 
     /*
-    "Stitch" resulting limbs together into one tree by trimming
-    of the squares that would make convex hull generation at joints 
-    impossible and conbining joints of "lost limbs"
+    In order to combine the resulting limbs into one tree the squares at 
+    each joint must be checked for "overshadowing". Overshadowing describes 
+    the existence of non-convex geometry at the joint.
     */
-    auto stitch = [&] ()
+    auto remove_overshadowed = [&] ()
     {
-        // uint n_joints = proto_joint_map.size();
-        // // Store which joints are ready for convex hull creation
-        // std::vector<bool> joint_clear(n_joints, false);
-        // // Create array for center points of all joints
-        // std::vector<Vector3d> joint_centers(n_joints);
-        // uint j = 0; // Counting-variable 
-        // for(auto& joint : proto_joint_map)
-        // {
-        //     joint_centers.at(j) = tnc.at(joint.first).location;
-        //     j++;
-        // }
-        // Analyze each joint for overshadowing geometry and delete squares if necessary
+        uint nj = 0;
+        for(auto j_it = joint_map.begin(); j_it != joint_map.end();)
+        {
+            cout << "Joint " << nj << endl;
+            nj++;
+            // Index if the node this 
+            uint n_ind = j_it->first;
+            // Joint object at this node 
+            Joint j = j_it->second;
+            // All limbs that are part of this joint
+            std::vector<std::vector<Square>*> j_limbs = j.starting_limbs;
+            // If there's a limbs that ends at this joint 
+            // add it at the first position if the container
+            if(j.ending_limb)
+            {
+                j_limbs.insert(j_limbs.begin(), j.ending_limb);
+            }
+            uint n_j_limbs = j_limbs.size();
+            // If all squares of any of the limbs get deleted the joint is invalid
+            // and the exception must be handled
+            std::vector<uint> invalid_limbs;
+            for(uint l = 0; l < n_j_limbs; l++)
+            {
+                cout << "Limb " << l << endl;
+                std::vector<Square>* curr_limb = j_limbs.at(l);
+                // Squares the current square is compared against
+                std::vector<std::vector<Square>::iterator> concurrent_squares(n_j_limbs - 1);
+                for(uint ll = 0; ll < concurrent_squares.size(); ll++)
+                {
+                    // Concurrent squares may not contain tested square
+                    std::vector<Square>* concurrent_limb = (ll >= l) ? j_limbs.at(ll) : j_limbs.at(ll + 1);
+                    concurrent_squares.at(ll) = (ll == 0 && j.ending_limb) ? (concurrent_limb->end() - 1) : concurrent_limb->begin();
+                }
+                uint squares_to_kill = 0;
+                uint n_squares = curr_limb->size();
+                while(squares_to_kill < n_squares)
+                {
+                    // Square that is being tested for overshadowing
+                    std::vector<Square>::iterator test_square = (l == 0 && j.ending_limb) ? 
+                        ((curr_limb->end() - 1) - squares_to_kill) : 
+                        (curr_limb->begin() + squares_to_kill);
+                    // Points of the tested square
+                    Vector3d& test_p0 = test_square->at(0);
+                    Vector3d& test_p1 = test_square->at(1);
+                    Vector3d& test_p2 = test_square->at(2);
+                    // Vector pointing from tested square to center of the joint
+                    Vector3d to_center = j.center_point - test_p0;
+                    // If the square is too close to the center of the joint,
+                    // it can automatically be assumed to be overshadowed
+                    bool overshadowed = is_close(to_center.norm(), 0.0);
+                    // Further checks are only required if this initial condition isn't true
+                    if(!overshadowed)
+                    {
+                        // Unnormalized normal vector of the tested square
+                        Vector3d normal = (test_p1 - test_p0).cross(test_p2 - test_p0);
+                        // Sign of this variable contains information wheter the center of 
+                        // the joint is "in front" or "behind" of the tested square
+                        double center_sgn = to_center.dot(normal);
+                        // For each concurrent square...
+                        for(auto& cs : concurrent_squares)
+                        {
+                            // For each vertex of that square...
+                            for(uint v = 0; v < 4; v++)
+                            {
+                                Vector3d& vert = cs->at(v);
+                                // Is the vertex "in front" or "behind" tested square
+                                double sgn = (vert - test_p0).dot(normal);
+                                cout << sgn << " " << center_sgn << endl;
+                                // If the signs aren't identical, the vertex and the joint center are
+                                // on different sides of the tested square (i.e. it is overshadowed)
+                                overshadowed |= !(sgn * center_sgn > 0.0);
+                            }
+                        }
+                    }
+                    // If this square is overshadowed by it's concurrent squares...
+                    if(overshadowed)
+                    {
+                        // ... mark it as to be removed
+                        squares_to_kill++;
+                    }
+                    // If we found a square that is not overshadowed we can stop checking
+                    else
+                    {
+                        break;
+                    }
+                }
+                cout << "Removing " << squares_to_kill << " out of " << n_squares << " squares" << endl;
+                // If this is an ending limb remove squares at the end...
+                if(l == 0 && j.ending_limb)
+                {
+                    curr_limb->erase(curr_limb->end() - squares_to_kill, curr_limb->end());
+                }
+                // ... else remove at the beginning
+                else
+                {
+                    curr_limb->erase(curr_limb->begin(), curr_limb->begin() + squares_to_kill);
+                }
+            }
+            break;
+            /*
+            If the algorithm has terminated because the number of squares
+            in this limb has approached zero, this joint is invalid 
+            and must be merged with the joint at the other end of the limb
+            that has approached zero.
+            */
+            if(std::any_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* e){return e->size() == 0;}))
+            {
+                j_it++;
+            }
+            else
+            {
+                j_it++;
+            }
+        }
     };
-    stitch();
+    remove_overshadowed();
 
     // Return data to python interface
     std::vector<Eigen::Vector3d> combined_point_data;
