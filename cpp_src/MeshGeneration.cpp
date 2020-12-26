@@ -368,7 +368,8 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     /*
     Convert joint map from map of indices to map of pointers to actual geomety 
     */
-    std::map<uint, Joint> joint_map;
+    std::vector<Joint> joints(proto_joint_map.size());
+    uint jmap_counter = 0;
     for(auto& elem : proto_joint_map)
     {
         Joint new_joint;
@@ -385,7 +386,8 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                 new_joint.ending_limb = limb_address;
             }
         }
-        joint_map[elem.first] = new_joint;
+        joints.at(jmap_counter) = new_joint;
+        jmap_counter++;
     }
 
     /*
@@ -395,15 +397,11 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     */
     auto remove_overshadowed = [&] ()
     {
-        uint nj = 0;
-        for(auto j_it = joint_map.begin(); j_it != joint_map.end();)
+        // std::map<std::vector<Square>*, Joint*> fusion_map;
+        for(uint j_counter = 0; j_counter < joints.size(); j_counter++)
         {
-            cout << "Joint " << nj << endl;
-            nj++;
-            // Index if the node this 
-            uint n_ind = j_it->first;
             // Joint object at this node 
-            Joint j = j_it->second;
+            Joint& j = joints.at(j_counter);
             // All limbs that are part of this joint
             std::vector<std::vector<Square>*> j_limbs = j.starting_limbs;
             // If there's a limbs that ends at this joint 
@@ -413,100 +411,77 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                 j_limbs.insert(j_limbs.begin(), j.ending_limb);
             }
             uint n_j_limbs = j_limbs.size();
-            // If all squares of any of the limbs get deleted the joint is invalid
-            // and the exception must be handled
-            std::vector<uint> invalid_limbs;
-            for(uint l = 0; l < n_j_limbs; l++)
+            // Indicates whether work on this joint is complete
+            bool joint_clear = false;
+            // Indicates whether all limbs of this joint have squares left to evaluate
+            bool limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
+            while(!joint_clear && limbs_intact)
             {
-                cout << "Limb " << l << endl;
-                std::vector<Square>* curr_limb = j_limbs.at(l);
-                // Squares the current square is compared against
-                std::vector<std::vector<Square>::iterator> concurrent_squares(n_j_limbs - 1);
-                for(uint ll = 0; ll < concurrent_squares.size(); ll++)
+                // Get relevant squares
+                std::vector<std::vector<Square>::iterator> squares_to_test(n_j_limbs);
+                for(uint l = 0; l < n_j_limbs; l++)
                 {
-                    // Concurrent squares may not contain tested square
-                    std::vector<Square>* concurrent_limb = (ll >= l) ? j_limbs.at(ll) : j_limbs.at(ll + 1);
-                    concurrent_squares.at(ll) = (ll == 0 && j.ending_limb) ? (concurrent_limb->end() - 1) : concurrent_limb->begin();
+                    squares_to_test.at(l) = (l == 0 && j.ending_limb) ? (j_limbs.at(l)->end() - 1) : j_limbs.at(l)->begin();
                 }
-                uint squares_to_kill = 0;
-                uint n_squares = curr_limb->size();
-                while(squares_to_kill < n_squares)
+                // Check each square for overshadowing
+                std::vector<bool> overshadowed(n_j_limbs, false);
+                for(uint l = 0; l < n_j_limbs; l++)
                 {
-                    // Square that is being tested for overshadowing
-                    std::vector<Square>::iterator test_square = (l == 0 && j.ending_limb) ? 
-                        ((curr_limb->end() - 1) - squares_to_kill) : 
-                        (curr_limb->begin() + squares_to_kill);
-                    // Points of the tested square
-                    Vector3d& test_p0 = test_square->at(0);
-                    Vector3d& test_p1 = test_square->at(1);
-                    Vector3d& test_p2 = test_square->at(2);
-                    // Vector pointing from tested square to center of the joint
-                    Vector3d to_center = j.center_point - test_p0;
-                    // If the square is too close to the center of the joint,
-                    // it can automatically be assumed to be overshadowed
-                    bool overshadowed = is_close(to_center.norm(), 0.0);
-                    // Further checks are only required if this initial condition isn't true
-                    if(!overshadowed)
+                    // Currently tested square
+                    auto& curr_square = squares_to_test.at(l);
+                    // Normal vector of the current square
+                    Vector3d normal = (curr_square->at(1) - curr_square->at(0)).cross(curr_square->at(2) - curr_square->at(0));
+                    // Middle of the current square
+                    Vector3d midpoint = (curr_square->at(0) + curr_square->at(2)) / 2;
+                    // Vector pointing from the center of the square to the center of the joint 
+                    Vector3d to_center = j.center_point - midpoint;
+                    // If distance to center is close to zero, the square can automatically be discarded
+                    if(is_close(to_center.norm(), 0.0))
                     {
-                        // Unnormalized normal vector of the tested square
-                        Vector3d normal = (test_p1 - test_p0).cross(test_p2 - test_p0);
-                        // Sign of this variable contains information wheter the center of 
-                        // the joint is "in front" or "behind" of the tested square
-                        double center_sgn = to_center.dot(normal);
-                        // For each concurrent square...
-                        for(auto& cs : concurrent_squares)
+                        overshadowed.at(l) = true;
+                    }
+                    else
+                    {
+                        double center_sgn = normal.dot(to_center);
+                        for(uint ll = 0; ll < n_j_limbs; ll++)
                         {
-                            // For each vertex of that square...
-                            for(uint v = 0; v < 4; v++)
+                            if(ll != l)
                             {
-                                Vector3d& vert = cs->at(v);
-                                // Is the vertex "in front" or "behind" tested square
-                                double sgn = (vert - test_p0).dot(normal);
-                                cout << sgn << " " << center_sgn << endl;
-                                // If the signs aren't identical, the vertex and the joint center are
-                                // on different sides of the tested square (i.e. it is overshadowed)
-                                overshadowed |= !(sgn * center_sgn > 0.0);
+                                auto comp_square = squares_to_test.at(ll);
+                                for(uint v = 0; v < 4; v++)
+                                {
+                                    Vector3d& comp_vert = comp_square->at(v);
+                                    Vector3d to_comp_vert = comp_vert - midpoint;
+                                    double sgn = normal.dot(to_comp_vert);
+                                    overshadowed.at(l) = (overshadowed.at(l) || !geq(center_sgn * sgn, 0.0));
+                                }
                             }
                         }
                     }
-                    // If this square is overshadowed by it's concurrent squares...
-                    if(overshadowed)
-                    {
-                        // ... mark it as to be removed
-                        squares_to_kill++;
-                    }
-                    // If we found a square that is not overshadowed we can stop checking
-                    else
-                    {
-                        break;
-                    }
                 }
-                cout << "Removing " << squares_to_kill << " out of " << n_squares << " squares" << endl;
-                // If this is an ending limb remove squares at the end...
-                if(l == 0 && j.ending_limb)
+                // If any square was overshadowed loop needs to be repeated
+                joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
+                // Remove overshadowed squares from limbs
+                for(uint l = 0; l < n_j_limbs; l++)
                 {
-                    curr_limb->erase(curr_limb->end() - squares_to_kill, curr_limb->end());
+                    if(overshadowed.at(l))
+                    {
+                        auto p_limb = j_limbs.at(l);
+                        // Remove last square of the ending limb (of one is present)
+                        if(l==0 && j.ending_limb)
+                        {
+                            p_limb->erase(p_limb->end() - 1);
+                        }
+                        // Else remove the first square
+                        else 
+                        {
+                            p_limb->erase(p_limb->begin());
+                        }
+                        // If the last square of this limb was removed
+                        // the algorithm cannot continue
+                        limbs_intact &= p_limb->size() > 0;
+                    }
                 }
-                // ... else remove at the beginning
-                else
-                {
-                    curr_limb->erase(curr_limb->begin(), curr_limb->begin() + squares_to_kill);
-                }
-            }
-            break;
-            /*
-            If the algorithm has terminated because the number of squares
-            in this limb has approached zero, this joint is invalid 
-            and must be merged with the joint at the other end of the limb
-            that has approached zero.
-            */
-            if(std::any_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* e){return e->size() == 0;}))
-            {
-                j_it++;
-            }
-            else
-            {
-                j_it++;
             }
         }
     };
