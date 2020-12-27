@@ -50,11 +50,10 @@ struct JointMapEntry
 
 struct Joint
 {
-    std::vector<Square>* ending_limb;
-    std::vector<std::vector<Square>*> starting_limbs;
+    bool ending_limb_present = false;
+    std::vector<std::vector<Square>*> limbs;
     // Needs to be a copy, since joints can be defined in between nodes
     Vector3d center_point;
-    Joint() : ending_limb(nullptr) {};
 };
 
 std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode)
@@ -373,18 +372,15 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     for(auto& elem : proto_joint_map)
     {
         Joint new_joint;
+        uint n_j_limbs = elem.second.size();
+        new_joint.limbs = std::vector<std::vector<Square>*>(n_j_limbs);
         new_joint.center_point = tnc.at(elem.first).location;
-        for(auto& entry : elem.second)
+        for(uint l = 0; l < n_j_limbs; l++)
         {
+            JointMapEntry entry = elem.second.at(l);
             auto limb_address = &squares.at(entry.limb_index);
-            if(entry.begins_with_joint)
-            {
-                new_joint.starting_limbs.push_back(limb_address);
-            }
-            else
-            {
-                new_joint.ending_limb = limb_address;
-            }
+            new_joint.limbs.at(l) = limb_address;
+            new_joint.ending_limb_present |= !entry.begins_with_joint;
         }
         joints.at(jmap_counter) = new_joint;
         jmap_counter++;
@@ -397,93 +393,149 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     */
     auto remove_overshadowed = [&] ()
     {
-        // std::map<std::vector<Square>*, Joint*> fusion_map;
-        for(uint j_counter = 0; j_counter < joints.size(); j_counter++)
+        bool all_clear = false;
+        while(!all_clear)
         {
-            // Joint object at this node 
-            Joint& j = joints.at(j_counter);
-            // All limbs that are part of this joint
-            std::vector<std::vector<Square>*> j_limbs = j.starting_limbs;
-            // If there's a limbs that ends at this joint 
-            // add it at the first position if the container
-            if(j.ending_limb)
+            std::map<std::vector<Square>*, std::vector<std::vector<Joint>::iterator>> fusion_map;
+            for(uint j_counter = 0; j_counter < joints.size(); j_counter++)
             {
-                j_limbs.insert(j_limbs.begin(), j.ending_limb);
-            }
-            uint n_j_limbs = j_limbs.size();
-            // Indicates whether work on this joint is complete
-            bool joint_clear = false;
-            // Indicates whether all limbs of this joint have squares left to evaluate
-            bool limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
-            while(!joint_clear && limbs_intact)
-            {
-                // Get relevant squares
-                std::vector<std::vector<Square>::iterator> squares_to_test(n_j_limbs);
-                for(uint l = 0; l < n_j_limbs; l++)
+                // Joint object at this node 
+                Joint& j = joints.at(j_counter);
+                // All limbs that are part of this joint
+                std::vector<std::vector<Square>*> j_limbs = j.limbs;
+                uint n_j_limbs = j_limbs.size();
+                // Indicates whether work on this joint is complete
+                bool joint_clear = false;
+                // Indicates whether all limbs of this joint have squares left to evaluate
+                bool limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
+                while(!joint_clear && limbs_intact)
                 {
-                    squares_to_test.at(l) = (l == 0 && j.ending_limb) ? (j_limbs.at(l)->end() - 1) : j_limbs.at(l)->begin();
-                }
-                // Check each square for overshadowing
-                std::vector<bool> overshadowed(n_j_limbs, false);
-                for(uint l = 0; l < n_j_limbs; l++)
-                {
-                    // Currently tested square
-                    auto& curr_square = squares_to_test.at(l);
-                    // Normal vector of the current square
-                    Vector3d normal = (curr_square->at(1) - curr_square->at(0)).cross(curr_square->at(2) - curr_square->at(0));
-                    // Middle of the current square
-                    Vector3d midpoint = (curr_square->at(0) + curr_square->at(2)) / 2;
-                    // Vector pointing from the center of the square to the center of the joint 
-                    Vector3d to_center = j.center_point - midpoint;
-                    // If distance to center is close to zero, the square can automatically be discarded
-                    if(is_close(to_center.norm(), 0.0))
+                    // Get relevant squares
+                    std::vector<std::vector<Square>::iterator> squares_to_test(n_j_limbs);
+                    for(uint l = 0; l < n_j_limbs; l++)
                     {
-                        overshadowed.at(l) = true;
+                        squares_to_test.at(l) = (l == 0 && j.ending_limb_present) ? (j_limbs.at(l)->end() - 1) : j_limbs.at(l)->begin();
                     }
-                    else
+                    // Check each square for overshadowing
+                    std::vector<bool> overshadowed(n_j_limbs, false);
+                    for(uint l = 0; l < n_j_limbs; l++)
                     {
-                        double center_sgn = normal.dot(to_center);
-                        for(uint ll = 0; ll < n_j_limbs; ll++)
+                        // Currently tested square
+                        auto& curr_square = squares_to_test.at(l);
+                        // Normal vector of the current square
+                        Vector3d normal = (curr_square->at(1) - curr_square->at(0)).cross(curr_square->at(2) - curr_square->at(0));
+                        // Middle of the current square
+                        Vector3d midpoint = (curr_square->at(0) + curr_square->at(2)) / 2;
+                        // Vector pointing from the center of the square to the center of the joint 
+                        Vector3d to_center = j.center_point - midpoint;
+                        // If distance to center is close to zero, the square can automatically be discarded
+                        if(is_close(to_center.norm(), 0.0))
                         {
-                            if(ll != l)
+                            overshadowed.at(l) = true;
+                        }
+                        else
+                        {
+                            double center_sgn = normal.dot(to_center);
+                            for(uint ll = 0; ll < n_j_limbs; ll++)
                             {
-                                auto comp_square = squares_to_test.at(ll);
-                                for(uint v = 0; v < 4; v++)
+                                if(ll != l)
                                 {
-                                    Vector3d& comp_vert = comp_square->at(v);
-                                    Vector3d to_comp_vert = comp_vert - midpoint;
-                                    double sgn = normal.dot(to_comp_vert);
-                                    overshadowed.at(l) = (overshadowed.at(l) || !geq(center_sgn * sgn, 0.0));
+                                    auto comp_square = squares_to_test.at(ll);
+                                    for(uint v = 0; v < 4; v++)
+                                    {
+                                        Vector3d& comp_vert = comp_square->at(v);
+                                        Vector3d to_comp_vert = comp_vert - midpoint;
+                                        double sgn = normal.dot(to_comp_vert);
+                                        overshadowed.at(l) = (overshadowed.at(l) || !geq(center_sgn * sgn, 0.0));
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                // If any square was overshadowed loop needs to be repeated
-                joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
-                // Remove overshadowed squares from limbs
-                for(uint l = 0; l < n_j_limbs; l++)
-                {
-                    if(overshadowed.at(l))
+                    // If any square was overshadowed loop needs to be repeated
+                    joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
+                    // Remove overshadowed squares from limbs
+                    for(uint l = 0; l < n_j_limbs; l++)
                     {
-                        auto p_limb = j_limbs.at(l);
-                        // Remove last square of the ending limb (of one is present)
-                        if(l==0 && j.ending_limb)
+                        if(overshadowed.at(l))
                         {
-                            p_limb->erase(p_limb->end() - 1);
+                            auto p_limb = j_limbs.at(l);
+                            // Remove last square of the ending limb (of one is present)
+                            if(l==0 && j.ending_limb_present)
+                            {
+                                p_limb->erase(p_limb->end() - 1);
+                            }
+                            // Else remove the first square
+                            else 
+                            {
+                                p_limb->erase(p_limb->begin());
+                            }
+                            // If the last square of this limb was removed
+                            // the algorithm cannot continue
+                            if(p_limb->size() == 0)
+                            {
+                                limbs_intact = false;
+                                fusion_map[&(*p_limb)].push_back(joints.begin() + j_counter);
+                            }
                         }
-                        // Else remove the first square
-                        else 
-                        {
-                            p_limb->erase(p_limb->begin());
-                        }
-                        // If the last square of this limb was removed
-                        // the algorithm cannot continue
-                        limbs_intact &= p_limb->size() > 0;
+                    } 
+                }
+            }
+            all_clear = (fusion_map.size() == 0);
+            cout << fusion_map.size() << endl;
+            for(auto& fusion : fusion_map)
+            {
+                // Address of the empty limb
+                std::vector<Square>* p_limb = fusion.first;
+                // Iterators of the joints affected by this limb
+                std::vector<std::vector<Joint>::iterator>& affected_joints = fusion.second;
+                // If the now empty limb was a "leaf" limb
+                // it can simply be removed from the only joint it's part of
+                if(affected_joints.size() == 1)
+                {
+                    std::vector<Joint>::iterator affected = affected_joints.at(0);
+                    std::vector<std::vector<Square>*> limbs = affected->limbs;
+                    limbs.erase(std::find(limbs.begin(), limbs.end(), p_limb));
+                    // If the joint has now become the tip of a leaf itself
+                    // it can be removed altogether 
+                    if(limbs.size() == 1)
+                    {
+                        joints.erase(affected);
                     }
+                }
+                // Else the two joints connected by the limbs 
+                // must be merged into one new joint
+                else
+                {
+                    // If this is not true the limb must end the second joint
+                    bool limb_ends_on_first = 
+                        affected_joints.at(0)->limbs.at(0) == p_limb && affected_joints.at(0)->ending_limb_present;
+                    
+                    auto& base_joint = !limb_ends_on_first ? affected_joints.at(0) : affected_joints.at(1);
+                    auto& non_base_joint = limb_ends_on_first ? affected_joints.at(0) : affected_joints.at(1);
+                    // Remove the limb in question from both joints
+                    base_joint->limbs.erase(std::find(base_joint->limbs.begin(), base_joint->limbs.end(), p_limb));
+                    non_base_joint->limbs.erase(non_base_joint->limbs.begin());
+                    // Merge the two remaining joints into a new one 
+                    Joint new_joint;
+                    new_joint.ending_limb_present = base_joint->ending_limb_present;
+                    new_joint.limbs.reserve(base_joint->limbs.size() + non_base_joint->limbs.size());
+                    new_joint.limbs.insert(new_joint.limbs.end(), 
+                        base_joint->limbs.begin(), base_joint->limbs.end());
+                    new_joint.limbs.insert(new_joint.limbs.end(), 
+                        non_base_joint->limbs.begin(), non_base_joint->limbs.end());
+                    // Add newly created joint to list of joints if necessary
+                    if(new_joint.limbs.size() > 1)
+                    {
+                        joints.push_back(new_joint);
+                    }
+                    // Remove old joints
+                    joints.erase(base_joint);
+                    joints.erase(non_base_joint);
                 }
             }
         }
+        
     };
     remove_overshadowed();
 
