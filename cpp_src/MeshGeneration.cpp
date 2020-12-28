@@ -386,6 +386,20 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
         jmap_counter++;
     }
 
+    // for(Joint& j : joints)
+    // {
+    //     cout << j.center_point << endl << endl;
+    // }
+
+    // for(uint i = 2; i < 4; i++)
+    // {
+    //     for(auto limb : joints.at(i).limbs)
+    //     {
+    //         cout << limb << endl;
+    //     }
+    //     cout << endl;
+    // }
+
     /*
     In order to combine the resulting limbs into one tree the squares at 
     each joint must be checked for "overshadowing". Overshadowing describes 
@@ -394,10 +408,15 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     auto remove_overshadowed = [&] ()
     {
         bool all_clear = false;
+        uint j_counter = 0;
         while(!all_clear)
         {
-            std::map<std::vector<Square>*, std::vector<std::vector<Joint>::iterator>> fusion_map;
-            for(uint j_counter = 0; j_counter < joints.size(); j_counter++)
+            // Map of all joints with degenerate (emtpy) limbs that need to
+            // be reprocessed or even merged 
+            std::map<std::vector<Square>*, std::vector<uint>> fusion_map;
+            // Counter does not get reset, so that only new joints get
+            // processed in future iterations 
+            for(; j_counter < joints.size(); j_counter++)
             {
                 // Joint object at this node 
                 Joint& j = joints.at(j_counter);
@@ -470,69 +489,99 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                             {
                                 p_limb->erase(p_limb->begin());
                             }
-                            // If the last square of this limb was removed
-                            // the algorithm cannot continue
-                            if(p_limb->size() == 0)
-                            {
-                                limbs_intact = false;
-                                fusion_map[&(*p_limb)].push_back(joints.begin() + j_counter);
-                            }
                         }
-                    } 
+                    }
+                    limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
+                }
+                // Check for empty limbs
+                for(uint l = 0; l < n_j_limbs; l++)
+                {
+                    auto limb = j.limbs.at(l);
+                    if(limb->size() == 0)
+                    {
+                        // Joints with empty limbs need to be addressed
+                        // and reprocessed 
+                        limbs_intact = false;
+                        fusion_map[limb].push_back(j_counter);
+                        break;
+                    }
                 }
             }
+            // If there are no degenerate joints with empty limbs
+            // the algorithm can be stopped
             all_clear = (fusion_map.size() == 0);
-            cout << fusion_map.size() << endl;
+            // List of all joints that need to be removed
+            std::vector<uint> kill_list;
+            // Take care of degenerate joints
             for(auto& fusion : fusion_map)
             {
                 // Address of the empty limb
                 std::vector<Square>* p_limb = fusion.first;
                 // Iterators of the joints affected by this limb
-                std::vector<std::vector<Joint>::iterator>& affected_joints = fusion.second;
+                std::vector<uint>& affected_joint_inds = fusion.second;
                 // If the now empty limb was a "leaf" limb
                 // it can simply be removed from the only joint it's part of
-                if(affected_joints.size() == 1)
+                if(affected_joint_inds.size() == 1)
                 {
-                    std::vector<Joint>::iterator affected = affected_joints.at(0);
-                    std::vector<std::vector<Square>*> limbs = affected->limbs;
-                    limbs.erase(std::find(limbs.begin(), limbs.end(), p_limb));
+                    Joint& affected = joints.at(affected_joint_inds.at(0));
+                    std::vector<std::vector<Square>*> limbs = affected.limbs;
+                    // Mark old joint as pending kill
+                    kill_list.push_back(affected_joint_inds.at(0));
+                    // Account for lost joint in counting
+                    j_counter--;
                     // If the joint has now become the tip of a leaf itself
-                    // it can be removed altogether 
-                    if(limbs.size() == 1)
+                    // it isn't a proper joint anymore and doesn't need to be readded
+                    if(limbs.size() > 2)
                     {
-                        joints.erase(affected);
+                        // If necessary put joint at end of joint container
+                        // for reevaluation
+                        Joint new_joint = affected;
+                        new_joint.limbs.erase(std::find(new_joint.limbs.begin(), new_joint.limbs.end(), p_limb));
+                        joints.push_back(new_joint);
                     }
                 }
                 // Else the two joints connected by the limbs 
                 // must be merged into one new joint
                 else
                 {
+                    Joint& first_joint = joints.at(affected_joint_inds.at(0));
+                    Joint& second_joint = joints.at(affected_joint_inds.at(1));
                     // If this is not true the limb must end the second joint
-                    bool limb_ends_on_first = 
-                        affected_joints.at(0)->limbs.at(0) == p_limb && affected_joints.at(0)->ending_limb_present;
-                    
-                    auto& base_joint = !limb_ends_on_first ? affected_joints.at(0) : affected_joints.at(1);
-                    auto& non_base_joint = limb_ends_on_first ? affected_joints.at(0) : affected_joints.at(1);
+                    bool second_is_base = (first_joint.limbs.at(0) == p_limb) && first_joint.ending_limb_present;
+                    // Ordered references for easier handling
+                    Joint& base_joint = !second_is_base ? first_joint : second_joint;
+                    Joint& non_base_joint = second_is_base ? first_joint : second_joint;
                     // Remove the limb in question from both joints
-                    base_joint->limbs.erase(std::find(base_joint->limbs.begin(), base_joint->limbs.end(), p_limb));
-                    non_base_joint->limbs.erase(non_base_joint->limbs.begin());
+                    base_joint.limbs.erase(std::find(base_joint.limbs.begin(), base_joint.limbs.end(), p_limb));
+                    non_base_joint.limbs.erase(non_base_joint.limbs.begin());   // Will always be first limb
                     // Merge the two remaining joints into a new one 
                     Joint new_joint;
-                    new_joint.ending_limb_present = base_joint->ending_limb_present;
-                    new_joint.limbs.reserve(base_joint->limbs.size() + non_base_joint->limbs.size());
-                    new_joint.limbs.insert(new_joint.limbs.end(), 
-                        base_joint->limbs.begin(), base_joint->limbs.end());
-                    new_joint.limbs.insert(new_joint.limbs.end(), 
-                        non_base_joint->limbs.begin(), non_base_joint->limbs.end());
+                    // Property gets inherited from base joint
+                    new_joint.ending_limb_present = base_joint.ending_limb_present;
+                    // Center point of new joint is in between old center points
+                    new_joint.center_point = (base_joint.center_point + non_base_joint.center_point) / 2;
+                    // Combine lists of limb addressed by allocating and inserting
+                    new_joint.limbs.reserve(base_joint.limbs.size() + non_base_joint.limbs.size());
+                    new_joint.limbs.insert(new_joint.limbs.end(), base_joint.limbs.begin(), base_joint.limbs.end());
+                    new_joint.limbs.insert(new_joint.limbs.end(), non_base_joint.limbs.begin(), non_base_joint.limbs.end());
+                    // Mark old joints as pending kills
+                    kill_list.push_back(affected_joint_inds.at(0));
+                    kill_list.push_back(affected_joint_inds.at(1));
+                    // Account for the two lost joints
+                    j_counter -= 2;
                     // Add newly created joint to list of joints if necessary
                     if(new_joint.limbs.size() > 1)
                     {
                         joints.push_back(new_joint);
                     }
-                    // Remove old joints
-                    joints.erase(base_joint);
-                    joints.erase(non_base_joint);
                 }
+            }
+            // Delete joints marked in kill list as pending kill
+            // in reverse order to avoid problems with constant indices
+            for(int k = kill_list.size() - 1; k >= 0; k--)
+            {
+                uint& kill_ind = kill_list.at(k);
+                joints.erase(joints.begin() + kill_ind);
             }
         }
         
