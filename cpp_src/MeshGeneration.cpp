@@ -386,19 +386,15 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
         jmap_counter++;
     }
 
-    // for(Joint& j : joints)
-    // {
-    //     cout << j.center_point << endl << endl;
-    // }
-
-    // for(uint i = 2; i < 4; i++)
-    // {
-    //     for(auto limb : joints.at(i).limbs)
-    //     {
-    //         cout << limb << endl;
-    //     }
-    //     cout << endl;
-    // }
+    // Debug
+    uint max_limb_size = 0;
+    for(auto& limb: squares)
+    {
+        max_limb_size = limb.size() > max_limb_size ? limb.size() : max_limb_size;
+    }
+    
+    // cout << "Initial number of joints " << joints.size() << " with a maximum limb size of " << max_limb_size << endl;
+    
 
     /*
     In order to combine the resulting limbs into one tree the squares at 
@@ -407,6 +403,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     */
     auto remove_overshadowed = [&] ()
     {
+        uint debug_counter = 0;
         bool all_clear = false;
         uint j_counter = 0;
         while(!all_clear)
@@ -418,17 +415,41 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
             // processed in future iterations 
             for(; j_counter < joints.size(); j_counter++)
             {
+                // for(uint l = 0; l < joints.at(j_counter).limbs.size(); l++)
+                // {
+                //     if(joints.at(j_counter).limbs.at(l)->size() > max_limb_size)
+                //     {
+                //         cout << "Error at " << j_counter << ", " << l << endl;
+                //         cout << "Before overshadowing detection" << endl;
+                //         return;
+                //     }
+                // }
                 // Joint object at this node 
                 Joint& j = joints.at(j_counter);
                 // All limbs that are part of this joint
-                std::vector<std::vector<Square>*> j_limbs = j.limbs;
+                std::vector<std::vector<Square>*>& j_limbs = j.limbs;
                 uint n_j_limbs = j_limbs.size();
                 // Indicates whether work on this joint is complete
                 bool joint_clear = false;
                 // Indicates whether all limbs of this joint have squares left to evaluate
-                bool limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
-                while(!joint_clear && limbs_intact)
+                uint jcl = 0;
+                while(!joint_clear)
                 {
+                    for(uint l = 0; l < n_j_limbs; l++)
+                    {
+                        if(j_limbs.at(l)->size() > max_limb_size)
+                        {
+                            cout << "Error at " << j_counter << ", " << l << endl;
+                            cout << "Overshadowing detection, iteration " << jcl << endl;
+                            return;
+                        }
+                    }
+                    // Check can not be done if there are any degenerate joints
+                    bool limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
+                    if(!limbs_intact)
+                    {
+                        break;
+                    }
                     // Get relevant squares
                     std::vector<std::vector<Square>::iterator> squares_to_test(n_j_limbs);
                     for(uint l = 0; l < n_j_limbs; l++)
@@ -471,8 +492,6 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                             }
                         }
                     }
-                    // If any square was overshadowed loop needs to be repeated
-                    joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
                     // Remove overshadowed squares from limbs
                     for(uint l = 0; l < n_j_limbs; l++)
                     {
@@ -491,18 +510,33 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                             }
                         }
                     }
-                    limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
+                    // If any square was overshadowed loop needs to be repeated
+                    joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
+                    jcl++;
                 }
+            }
+            // Detect degenerate joints
+            for(uint j = 0; j < joints.size(); j++)
+            {
+                // for(uint l = 0; l < joints.at(j).limbs.size(); l++)
+                // {
+                //     if(joints.at(j).limbs.at(l)->size() > max_limb_size)
+                //     {
+                //         cout << "Error at " << j << ", " << l << endl;
+                //         cout << "Degenerate detection" << endl;
+                //         return;
+                //     }
+                // }
+                uint n_j_limbs = joints.at(j).limbs.size();
                 // Check for empty limbs
                 for(uint l = 0; l < n_j_limbs; l++)
                 {
-                    auto limb = j.limbs.at(l);
+                    auto limb = joints.at(j).limbs.at(l);
                     if(limb->size() == 0)
                     {
                         // Joints with empty limbs need to be addressed
                         // and reprocessed 
-                        limbs_intact = false;
-                        fusion_map[limb].push_back(j_counter);
+                        fusion_map[limb].push_back(j);
                         break;
                     }
                 }
@@ -519,26 +553,22 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                 std::vector<Square>* p_limb = fusion.first;
                 // Iterators of the joints affected by this limb
                 std::vector<uint>& affected_joint_inds = fusion.second;
+                // New joint that will be appended to the list of joints
+                Joint new_joint;
                 // If the now empty limb was a "leaf" limb
                 // it can simply be removed from the only joint it's part of
                 if(affected_joint_inds.size() == 1)
                 {
                     Joint& affected = joints.at(affected_joint_inds.at(0));
-                    std::vector<std::vector<Square>*> limbs = affected.limbs;
+                    std::vector<std::vector<Square>*>& limbs = affected.limbs;
                     // Mark old joint as pending kill
                     kill_list.push_back(affected_joint_inds.at(0));
+                    // Remove empty limb from old joint
+                    limbs.erase(std::find(limbs.begin(), limbs.end(), p_limb));
+                    // Copy data to new joint
+                    new_joint = affected;
                     // Account for lost joint in counting
                     j_counter--;
-                    // If the joint has now become the tip of a leaf itself
-                    // it isn't a proper joint anymore and doesn't need to be readded
-                    if(limbs.size() > 2)
-                    {
-                        // If necessary put joint at end of joint container
-                        // for reevaluation
-                        Joint new_joint = affected;
-                        new_joint.limbs.erase(std::find(new_joint.limbs.begin(), new_joint.limbs.end(), p_limb));
-                        joints.push_back(new_joint);
-                    }
                 }
                 // Else the two joints connected by the limbs 
                 // must be merged into one new joint
@@ -554,8 +584,6 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                     // Remove the limb in question from both joints
                     base_joint.limbs.erase(std::find(base_joint.limbs.begin(), base_joint.limbs.end(), p_limb));
                     non_base_joint.limbs.erase(non_base_joint.limbs.begin());   // Will always be first limb
-                    // Merge the two remaining joints into a new one 
-                    Joint new_joint;
                     // Property gets inherited from base joint
                     new_joint.ending_limb_present = base_joint.ending_limb_present;
                     // Center point of new joint is in between old center points
@@ -569,20 +597,31 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                     kill_list.push_back(affected_joint_inds.at(1));
                     // Account for the two lost joints
                     j_counter -= 2;
-                    // Add newly created joint to list of joints if necessary
-                    if(new_joint.limbs.size() > 1)
-                    {
-                        joints.push_back(new_joint);
-                    }
+                }
+                // Add newly created joint to list of joints if necessary
+                // for(uint l = 0; l < new_joint.limbs.size(); l++)
+                // {
+                //     if(new_joint.limbs.at(l)->size() > max_limb_size)
+                //     {
+                //         cout << "Fusion" << endl;
+                //         return;
+                //     }
+                // }
+                if(new_joint.limbs.size() > 1)
+                {
+                    joints.push_back(new_joint);
                 }
             }
             // Delete joints marked in kill list as pending kill
             // in reverse order to avoid problems with constant indices
+            cout << joints.size() << endl;
             for(int k = kill_list.size() - 1; k >= 0; k--)
             {
                 uint& kill_ind = kill_list.at(k);
+                cout << kill_ind << endl;
                 joints.erase(joints.begin() + kill_ind);
             }
+            debug_counter++;
         }
         
     };
