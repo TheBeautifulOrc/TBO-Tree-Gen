@@ -220,7 +220,7 @@ void grow_nodes(TreeNodeContainer& nodes, Ref<MatrixX3d> p_attr, const double& D
     } while (!crowns_grown);
 }
 
-TreeNodeContainer separate_by_id(TreeNodeContainer& nodes, const ulong& id)
+auto separate_by_id(TreeNodeContainer& nodes, const ulong& id) -> TreeNodeContainer
 {
     // Create new container
     TreeNodeContainer new_nodes;

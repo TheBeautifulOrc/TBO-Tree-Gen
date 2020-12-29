@@ -22,4 +22,5 @@
 class TreeNode;
 using TreeNodeContainer = std::vector<TreeNode>;
 
-std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode);
+auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode) 
+    -> std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>>;

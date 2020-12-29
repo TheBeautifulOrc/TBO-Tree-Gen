@@ -19,13 +19,13 @@
 #include <memory>
 #include <Eigen/Core>
 
-inline bool is_close(const double& a, const double& b) { return (std::abs(a-b) < __DBL_EPSILON__); }
-inline bool leq(const double& a, const double& b) { return (a < b) | is_close(a,b); }
-inline bool geq(const double& a, const double& b) { return (a > b) | is_close(a,b); }
+inline auto is_close(const double& a, const double& b) -> bool { return (std::abs(a-b) < __DBL_EPSILON__); }
+inline auto leq(const double& a, const double& b) -> bool { return (a < b) | is_close(a,b); }
+inline auto geq(const double& a, const double& b) -> bool { return (a > b) | is_close(a,b); }
 
-inline float angle(const Eigen::Vector3d& a, const Eigen::Vector3d& b) { return std::acos(a.dot(b) / (a.norm()*b.norm())); }
+inline auto angle(const Eigen::Vector3d& a, const Eigen::Vector3d& b) -> float { return std::acos(a.dot(b) / (a.norm()*b.norm())); }
 
-Eigen::Vector3d calc_growth_direction(const Eigen::Vector3d& old_node_loc, const std::vector<Eigen::Vector3d>& attr_points);
+auto calc_growth_direction(const Eigen::Vector3d& old_node_loc, const std::vector<Eigen::Vector3d>& attr_points) -> Eigen::Vector3d;
 
 class Spline;
 class Spline3d
@@ -42,7 +42,7 @@ class Spline3d
     Spline3d();
     ~Spline3d();
     void init(std::vector<const Eigen::Vector3d*>& _points);
-    double to_w(const double& loc_pos, const uint& seg);
-    Eigen::Vector3d evaluate(const double& pos);
-    inline std::vector<double> get_w() { return w; };
+    auto to_w(const double& loc_pos, const uint& seg) -> double;
+    auto evaluate(const double& pos) -> Eigen::Vector3d;
+    inline auto get_w() -> std::vector<double> { return w; };
 };

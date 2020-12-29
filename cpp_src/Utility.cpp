@@ -23,7 +23,7 @@ using Eigen::Vector3d;
 const double root_2 = std::sqrt(2);
 
 // Calculate normalized vector pointing in the direction of the next growth-step
-Vector3d calc_growth_direction(const Vector3d& old_node_loc, const std::vector<Vector3d>& attr_points)
+auto calc_growth_direction(const Vector3d& old_node_loc, const std::vector<Vector3d>& attr_points) -> Vector3d
 {
     // Number of attraction points influencing growth of this node in this iteration
     size_t n_attr_points = attr_points.size();
@@ -82,14 +82,14 @@ void Spline3d::init(std::vector<const Vector3d*>& _points)
     z_spline->set_points(w, z);
 }
 
-double Spline3d::to_w(const double& loc_pos, const uint& seg)
+auto Spline3d::to_w(const double& loc_pos, const uint& seg) -> double
 {
     const double& base_val = w.at(seg);
     double offset = (w.at(seg+1) - w.at(seg)) * loc_pos;
     return base_val + offset;
 }
 
-Vector3d Spline3d::evaluate(const double& pos)
+auto Spline3d::evaluate(const double& pos) -> Vector3d
 {
     return Vector3d((*x_spline)(pos), (*y_spline)(pos), (*z_spline)(pos));
 }

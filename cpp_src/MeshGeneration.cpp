@@ -27,6 +27,7 @@ using std::endl;
 using Eigen::Vector3d;
 using Eigen::Matrix3d;
 using Square = std::array<Vector3d, 4>;
+using Limb = std::vector<Square>;
 
 const Matrix3d ref_coords = Matrix3d::Identity();
 const std::array<int, 4> x_permuation {1,-1,-1,1};
@@ -51,12 +52,13 @@ struct JointMapEntry
 struct Joint
 {
     bool ending_limb_present = false;
-    std::vector<std::vector<Square>*> limbs;
+    std::vector<Limb*> limbs;
     // Needs to be a copy, since joints can be defined in between nodes
     Vector3d center_point;
 };
 
-std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode)
+auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode) 
+    -> std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>>
 {
     // General purpose values
     const uint n_nodes = tnc.size();
@@ -169,7 +171,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     "Sweep" square profiles across the "limbs" of the TreeNodeContainer
     */
     // Two dimensional list of squares (four points each) that make up the tree
-    std::vector<std::vector<Square>> squares;
+    std::vector<Limb> squares;
     auto sweep = [&] ()
     {
         /*
@@ -339,14 +341,14 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
         /*
         Sweep square profile along calculated positions
         */
-        squares = std::vector<std::vector<Square>>(n_limbs);
+        squares = std::vector<Limb>(n_limbs);
         for(uint l = 0; l < n_limbs; l++)
         {
             std::vector<Centroid>& l_centroids = centroids.at(l);
             std::vector<Matrix3d>& l_lcs = local_coordinate_systems.at(l);
             uint n_l_squares = l_lcs.size();
-            std::vector<Square>& l_squares = squares.at(l);
-            l_squares = std::vector<Square>(n_l_squares);
+            Limb& l_squares = squares.at(l);
+            l_squares = Limb(n_l_squares);
             for(uint s = 0; s < n_l_squares; s++)
             {
                 Centroid& centroid = l_centroids.at(s);
@@ -373,7 +375,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     {
         Joint new_joint;
         uint n_j_limbs = elem.second.size();
-        new_joint.limbs = std::vector<std::vector<Square>*>(n_j_limbs);
+        new_joint.limbs = std::vector<Limb*>(n_j_limbs);
         new_joint.center_point = tnc.at(elem.first).location;
         for(uint l = 0; l < n_j_limbs; l++)
         {
@@ -387,14 +389,11 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     }
 
     // Debug
-    uint max_limb_size = 0;
-    for(auto& limb: squares)
-    {
-        max_limb_size = limb.size() > max_limb_size ? limb.size() : max_limb_size;
-    }
-    
-    // cout << "Initial number of joints " << joints.size() << " with a maximum limb size of " << max_limb_size << endl;
-    
+    // uint max_limb_size = 0;
+    // for(auto& limb: squares)
+    // {
+    //     max_limb_size = limb.size() > max_limb_size ? limb.size() : max_limb_size;
+    // }    
 
     /*
     In order to combine the resulting limbs into one tree the squares at 
@@ -403,65 +402,54 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
     */
     auto remove_overshadowed = [&] ()
     {
-        uint debug_counter = 0;
         bool all_clear = false;
         uint j_counter = 0;
         while(!all_clear)
         {
             // Map of all joints with degenerate (emtpy) limbs that need to
             // be reprocessed or even merged 
-            std::map<std::vector<Square>*, std::vector<uint>> fusion_map;
+            std::map<Limb*, std::vector<uint>> fusion_map;
             // Counter does not get reset, so that only new joints get
-            // processed in future iterations 
+            // processed in future iterations
             for(; j_counter < joints.size(); j_counter++)
             {
-                // for(uint l = 0; l < joints.at(j_counter).limbs.size(); l++)
-                // {
-                //     if(joints.at(j_counter).limbs.at(l)->size() > max_limb_size)
-                //     {
-                //         cout << "Error at " << j_counter << ", " << l << endl;
-                //         cout << "Before overshadowing detection" << endl;
-                //         return;
-                //     }
-                // }
                 // Joint object at this node 
                 Joint& j = joints.at(j_counter);
                 // All limbs that are part of this joint
-                std::vector<std::vector<Square>*>& j_limbs = j.limbs;
+                std::vector<Limb*>& j_limbs = j.limbs;
                 uint n_j_limbs = j_limbs.size();
+                // Offset map pointing showing the number of invalid squares in a limb
+                std::vector<uint> offset_map(n_j_limbs, 0);
                 // Indicates whether work on this joint is complete
                 bool joint_clear = false;
                 // Indicates whether all limbs of this joint have squares left to evaluate
-                uint jcl = 0;
                 while(!joint_clear)
                 {
+                    // Check can not be done if there are any degenerate joints
+                    bool limbs_valid = true;
                     for(uint l = 0; l < n_j_limbs; l++)
                     {
-                        if(j_limbs.at(l)->size() > max_limb_size)
-                        {
-                            cout << "Error at " << j_counter << ", " << l << endl;
-                            cout << "Overshadowing detection, iteration " << jcl << endl;
-                            return;
-                        }
+                        limbs_valid &= offset_map.at(l) < j_limbs.at(l)->size();
                     }
-                    // Check can not be done if there are any degenerate joints
-                    bool limbs_intact = std::all_of(j_limbs.begin(), j_limbs.end(), [](std::vector<Square>* limb){return (limb->size() > 0);});
-                    if(!limbs_intact)
-                    {
+                    if(!limbs_valid)
+                    {   
                         break;
                     }
                     // Get relevant squares
-                    std::vector<std::vector<Square>::iterator> squares_to_test(n_j_limbs);
+                    std::vector<Limb::iterator> squares_to_test(n_j_limbs);
                     for(uint l = 0; l < n_j_limbs; l++)
                     {
-                        squares_to_test.at(l) = (l == 0 && j.ending_limb_present) ? (j_limbs.at(l)->end() - 1) : j_limbs.at(l)->begin();
+                        auto it = j_limbs.at(l)->begin();
+                        uint advancement = (l == 0 && j.ending_limb_present) ? (j_limbs.at(l)->size() - (1 + offset_map.at(l))) : offset_map.at(l);
+                        std::advance(it, advancement);
+                        squares_to_test.at(l) = it;
                     }
                     // Check each square for overshadowing
                     std::vector<bool> overshadowed(n_j_limbs, false);
                     for(uint l = 0; l < n_j_limbs; l++)
                     {
                         // Currently tested square
-                        auto& curr_square = squares_to_test.at(l);
+                        auto curr_square = squares_to_test.at(l);
                         // Normal vector of the current square
                         Vector3d normal = (curr_square->at(1) - curr_square->at(0)).cross(curr_square->at(2) - curr_square->at(0));
                         // Middle of the current square
@@ -473,60 +461,67 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                         {
                             overshadowed.at(l) = true;
                         }
+                        // If not more tests need to be conducted
                         else
                         {
+                            // "Direction" of center point relative to square
                             double center_sgn = normal.dot(to_center);
+                            // Compare with each other tested square
                             for(uint ll = 0; ll < n_j_limbs; ll++)
                             {
+                                // Except for itself...
                                 if(ll != l)
                                 {
+                                    // Other square
                                     auto comp_square = squares_to_test.at(ll);
+                                    // For each of the other squares vertices
                                     for(uint v = 0; v < 4; v++)
                                     {
+                                        // Selected vertex
                                         Vector3d& comp_vert = comp_square->at(v);
+                                        // Vector pointing from center of examined square 
+                                        // to the vertex of the other square
                                         Vector3d to_comp_vert = comp_vert - midpoint;
+                                        // "Direction" to vertex
                                         double sgn = normal.dot(to_comp_vert);
+                                        // If the two directions dont have the same sign, 
+                                        // the examined square is by definition overshadowed
                                         overshadowed.at(l) = (overshadowed.at(l) || !geq(center_sgn * sgn, 0.0));
                                     }
                                 }
                             }
                         }
-                    }
-                    // Remove overshadowed squares from limbs
-                    for(uint l = 0; l < n_j_limbs; l++)
-                    {
-                        if(overshadowed.at(l))
-                        {
-                            auto p_limb = j_limbs.at(l);
-                            // Remove last square of the ending limb (of one is present)
-                            if(l==0 && j.ending_limb_present)
-                            {
-                                p_limb->erase(p_limb->end() - 1);
-                            }
-                            // Else remove the first square
-                            else 
-                            {
-                                p_limb->erase(p_limb->begin());
-                            }
-                        }
+                        // If it is overshadowed, the offset needs to be incremented
+                        offset_map.at(l) += overshadowed.at(l);
                     }
                     // If any square was overshadowed loop needs to be repeated
                     joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
-                    jcl++;
+                }
+                // Remove overshadowed squares from limbs
+                for(uint l = 0; l < n_j_limbs; l++)
+                {
+                    // Limb of which data will be removed
+                    auto p_limb = j_limbs.at(l);
+                    uint l_size = p_limb->size();
+                    // Number of squares to remove from this limb
+                    uint& offset = offset_map.at(l);
+                    // Boundaries for erasing
+                    Limb::iterator l_boundary = p_limb->begin();
+                    Limb::iterator r_boundary = p_limb->begin();
+                    std::advance(r_boundary, offset);
+                    // Move boundaries if this is an ending limb
+                    if(l==0 && j.ending_limb_present)
+                    {
+                        std::advance(l_boundary, l_size - offset);
+                        std::advance(r_boundary, l_size - offset);
+                    }
+                    p_limb->erase(l_boundary, r_boundary);
                 }
             }
             // Detect degenerate joints
             for(uint j = 0; j < joints.size(); j++)
             {
-                // for(uint l = 0; l < joints.at(j).limbs.size(); l++)
-                // {
-                //     if(joints.at(j).limbs.at(l)->size() > max_limb_size)
-                //     {
-                //         cout << "Error at " << j << ", " << l << endl;
-                //         cout << "Degenerate detection" << endl;
-                //         return;
-                //     }
-                // }
+                bool already_found_dead = false;
                 uint n_j_limbs = joints.at(j).limbs.size();
                 // Check for empty limbs
                 for(uint l = 0; l < n_j_limbs; l++)
@@ -537,7 +532,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                         // Joints with empty limbs need to be addressed
                         // and reprocessed 
                         fusion_map[limb].push_back(j);
-                        break;
+                        break;  // This breaks the code, TODO: Remove this trash
                     }
                 }
             }
@@ -550,7 +545,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
             for(auto& fusion : fusion_map)
             {
                 // Address of the empty limb
-                std::vector<Square>* p_limb = fusion.first;
+                Limb* p_limb = fusion.first;
                 // Iterators of the joints affected by this limb
                 std::vector<uint>& affected_joint_inds = fusion.second;
                 // New joint that will be appended to the list of joints
@@ -560,7 +555,7 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                 if(affected_joint_inds.size() == 1)
                 {
                     Joint& affected = joints.at(affected_joint_inds.at(0));
-                    std::vector<std::vector<Square>*>& limbs = affected.limbs;
+                    std::vector<Limb*>& limbs = affected.limbs;
                     // Mark old joint as pending kill
                     kill_list.push_back(affected_joint_inds.at(0));
                     // Remove empty limb from old joint
@@ -599,14 +594,6 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
                     j_counter -= 2;
                 }
                 // Add newly created joint to list of joints if necessary
-                // for(uint l = 0; l < new_joint.limbs.size(); l++)
-                // {
-                //     if(new_joint.limbs.at(l)->size() > max_limb_size)
-                //     {
-                //         cout << "Fusion" << endl;
-                //         return;
-                //     }
-                // }
                 if(new_joint.limbs.size() > 1)
                 {
                     joints.push_back(new_joint);
@@ -614,16 +601,14 @@ std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> generat
             }
             // Delete joints marked in kill list as pending kill
             // in reverse order to avoid problems with constant indices
-            cout << joints.size() << endl;
             for(int k = kill_list.size() - 1; k >= 0; k--)
             {
                 uint& kill_ind = kill_list.at(k);
-                cout << kill_ind << endl;
-                joints.erase(joints.begin() + kill_ind);
+                auto it = joints.begin();
+                std::advance(it, kill_ind);
+                joints.erase(it);
             }
-            debug_counter++;
-        }
-        
+        }      
     };
     remove_overshadowed();
 
