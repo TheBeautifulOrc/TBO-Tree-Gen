@@ -518,10 +518,12 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     p_limb->erase(l_boundary, r_boundary);
                 }
             }
+            // Table to lookup indices of joints after joints may have been removed
+            std::map<uint, uint> index_table;
             // Detect degenerate joints
             for(uint j = 0; j < joints.size(); j++)
             {
-                bool already_found_dead = false;
+                index_table[j] = j;
                 uint n_j_limbs = joints.at(j).limbs.size();
                 // Check for empty limbs
                 for(uint l = 0; l < n_j_limbs; l++)
@@ -532,7 +534,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                         // Joints with empty limbs need to be addressed
                         // and reprocessed 
                         fusion_map[limb].push_back(j);
-                        break;  // This breaks the code, TODO: Remove this trash
                     }
                 }
             }
@@ -546,8 +547,13 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             {
                 // Address of the empty limb
                 Limb* p_limb = fusion.first;
-                // Iterators of the joints affected by this limb
+                // Indices of the joints affected by this limb
                 std::vector<uint>& affected_joint_inds = fusion.second;
+                // Update indices by values inside the lookup table
+                for(auto& ind : affected_joint_inds)
+                {
+                    ind = index_table[ind];
+                }
                 // New joint that will be appended to the list of joints
                 Joint new_joint;
                 // If the now empty limb was a "leaf" limb
@@ -564,6 +570,8 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     new_joint = affected;
                     // Account for lost joint in counting
                     j_counter--;
+                    // Update index table
+                    index_table[fusion.second.at(0)] = joints.size();
                 }
                 // Else the two joints connected by the limbs 
                 // must be merged into one new joint
@@ -593,10 +601,11 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     // Account for the two lost joints
                     j_counter -= 2;
                 }
-                // Add newly created joint to list of joints if necessary
-                if(new_joint.limbs.size() > 1)
+                // Add newly created joint to list of joints
+                joints.push_back(new_joint);
+                for(auto& ind : fusion.second)
                 {
-                    joints.push_back(new_joint);
+                    index_table[ind] = joints.size() - 1;
                 }
             }
             // Delete joints marked in kill list as pending kill
