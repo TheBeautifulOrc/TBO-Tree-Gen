@@ -15,8 +15,7 @@
 
 # Compiler
 CC := g++
-CC_options := -Wall -shared -std=c++11 -g3 -fPIC -pipe -fvisibility=hidden
-CC_perf_options := -Wall -shared -std=c++11 -O3 -fPIC -pipe -fvisibility=hidden
+CC_options := -Wall -shared -std=c++11 -O3 -fPIC -pipe -fvisibility=hidden
 # Filed included during compilation
 3.7_include := $(shell python3.7m -m pybind11 --includes) -I/usr/include/eigen3
 3.8_include := $(shell python3.8 -m pybind11 --includes) -I/usr/include/eigen3
@@ -34,9 +33,6 @@ src := $(shell find $(src_dir) -name '*.cpp')
 
 test_build:
 	$(CC) $(CC_options) $(3.8_include) -o $(3.8_out) $(src)
-
-perf_build:
-	$(CC) $(CC_perf_options) $(3.8_include) -o $(3.8_out) $(src)
 
 build_all:
 	$(CC) $(CC_options) $(3.7_include) -o $(3.7_out) $(src)

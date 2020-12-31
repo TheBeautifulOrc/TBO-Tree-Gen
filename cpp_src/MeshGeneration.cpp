@@ -15,6 +15,7 @@
 
 #include "MeshGeneration.h"
 #include <map>
+#include <algorithm>
 #include <Eigen/Dense>
 #include "TreeNodes.h"
 #include "Utility.h"
@@ -388,13 +389,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         jmap_counter++;
     }
 
-    // Debug
-    // uint max_limb_size = 0;
-    // for(auto& limb: squares)
-    // {
-    //     max_limb_size = limb.size() > max_limb_size ? limb.size() : max_limb_size;
-    // }    
-
     /*
     In order to combine the resulting limbs into one tree the squares at 
     each joint must be checked for "overshadowing". Overshadowing describes 
@@ -406,9 +400,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         uint j_counter = 0;
         while(!all_clear)
         {
-            // Map of all joints with degenerate (emtpy) limbs that need to
-            // be reprocessed or even merged 
-            std::map<Limb*, std::vector<uint>> fusion_map;
+            cout << endl << "Not clear" << endl;
             // Counter does not get reset, so that only new joints get
             // processed in future iterations
             for(; j_counter < joints.size(); j_counter++)
@@ -497,6 +489,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     // If any square was overshadowed loop needs to be repeated
                     joint_clear = !std::any_of(overshadowed.begin(), overshadowed.end(), [](bool b){return b;});
                 }
+                // cout << "\tDetection done" << endl;
                 // Remove overshadowed squares from limbs
                 for(uint l = 0; l < n_j_limbs; l++)
                 {
@@ -517,13 +510,16 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                     p_limb->erase(l_boundary, r_boundary);
                 }
+                // cout << "\tRemoval done" << endl;
             }
-            // Table to lookup indices of joints after joints may have been removed
-            std::map<uint, uint> index_table;
+            cout << "Detected overshadowed" << endl;
+            // Map of all joints with degenerate (emtpy) limbs that need to
+            // be reprocessed or even merged 
+            std::map<uint, std::vector<Limb*>> degenerate_map;
+            std::map<Limb*, std::vector<uint>> degenerate_connections;
             // Detect degenerate joints
             for(uint j = 0; j < joints.size(); j++)
             {
-                index_table[j] = j;
                 uint n_j_limbs = joints.at(j).limbs.size();
                 // Check for empty limbs
                 for(uint l = 0; l < n_j_limbs; l++)
@@ -533,83 +529,154 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     {
                         // Joints with empty limbs need to be addressed
                         // and reprocessed 
-                        fusion_map[limb].push_back(j);
+                        degenerate_connections[limb].push_back(j);
+                        degenerate_map[j].push_back(limb);
                     }
                 }
             }
-            // If there are no degenerate joints with empty limbs
-            // the algorithm can be stopped
-            all_clear = (fusion_map.size() == 0);
-            // List of all joints that need to be removed
-            std::vector<uint> kill_list;
-            // Take care of degenerate joints
-            for(auto& fusion : fusion_map)
+            cout << "Detected degenerates" << endl;
+            // Group degenerate joints into networks
+            std::vector<std::map<uint, std::vector<Limb*>>> degenerate_networks;
+            // Which degenerates have already been tracked inside a network
+            std::map<uint, bool> visited;
+            for(auto& degenerate_pair : degenerate_map)
             {
-                // Address of the empty limb
-                Limb* p_limb = fusion.first;
-                // Indices of the joints affected by this limb
-                std::vector<uint>& affected_joint_inds = fusion.second;
-                // Update indices by values inside the lookup table
-                for(auto& ind : affected_joint_inds)
+                visited[degenerate_pair.first] = false;
+            }
+            // Iterate and add to network periodically
+            for(auto degenerate_pair : degenerate_map)
+            {
+                bool& joint_visited = visited.at(degenerate_pair.first);
+                // If this joint isn't already part of the map
+                if(!joint_visited)
                 {
-                    ind = index_table[ind];
-                }
-                // New joint that will be appended to the list of joints
-                Joint new_joint;
-                // If the now empty limb was a "leaf" limb
-                // it can simply be removed from the only joint it's part of
-                if(affected_joint_inds.size() == 1)
-                {
-                    Joint& affected = joints.at(affected_joint_inds.at(0));
-                    std::vector<Limb*>& limbs = affected.limbs;
-                    // Mark old joint as pending kill
-                    kill_list.push_back(affected_joint_inds.at(0));
-                    // Remove empty limb from old joint
-                    limbs.erase(std::find(limbs.begin(), limbs.end(), p_limb));
-                    // Copy data to new joint
-                    new_joint = affected;
-                    // Account for lost joint in counting
-                    j_counter--;
-                    // Update index table
-                    index_table[fusion.second.at(0)] = joints.size();
-                }
-                // Else the two joints connected by the limbs 
-                // must be merged into one new joint
-                else
-                {
-                    Joint& first_joint = joints.at(affected_joint_inds.at(0));
-                    Joint& second_joint = joints.at(affected_joint_inds.at(1));
-                    // If this is not true the limb must end the second joint
-                    bool second_is_base = (first_joint.limbs.at(0) == p_limb) && first_joint.ending_limb_present;
-                    // Ordered references for easier handling
-                    Joint& base_joint = !second_is_base ? first_joint : second_joint;
-                    Joint& non_base_joint = second_is_base ? first_joint : second_joint;
-                    // Remove the limb in question from both joints
-                    base_joint.limbs.erase(std::find(base_joint.limbs.begin(), base_joint.limbs.end(), p_limb));
-                    non_base_joint.limbs.erase(non_base_joint.limbs.begin());   // Will always be first limb
-                    // Property gets inherited from base joint
-                    new_joint.ending_limb_present = base_joint.ending_limb_present;
-                    // Center point of new joint is in between old center points
-                    new_joint.center_point = (base_joint.center_point + non_base_joint.center_point) / 2;
-                    // Combine lists of limb addressed by allocating and inserting
-                    new_joint.limbs.reserve(base_joint.limbs.size() + non_base_joint.limbs.size());
-                    new_joint.limbs.insert(new_joint.limbs.end(), base_joint.limbs.begin(), base_joint.limbs.end());
-                    new_joint.limbs.insert(new_joint.limbs.end(), non_base_joint.limbs.begin(), non_base_joint.limbs.end());
-                    // Mark old joints as pending kills
-                    kill_list.push_back(affected_joint_inds.at(0));
-                    kill_list.push_back(affected_joint_inds.at(1));
-                    // Account for the two lost joints
-                    j_counter -= 2;
-                }
-                // Add newly created joint to list of joints
-                joints.push_back(new_joint);
-                for(auto& ind : fusion.second)
-                {
-                    index_table[ind] = joints.size() - 1;
+                    // Mark it as visited
+                    joint_visited = true;
+                    // And add a new network to the map
+                    degenerate_networks.push_back(std::map<uint, std::vector<Limb*>>());
+                    // Add the current degenerate pair to the network
+                    auto& curr_network = degenerate_networks.back();
+                    curr_network.insert(degenerate_pair);
+                    // Indicates whether a new degenerate has been added to the current network
+                    bool network_expanded = true;
+                    while(network_expanded)
+                    {
+                        network_expanded = false;
+                        // Then check for each joint in the current network...
+                        for(auto& pair : curr_network)
+                        {
+                            // ... for each dead limb on this joint...
+                            for(auto l_addr : pair.second)
+                            {
+                                // ... if it connects to another joint that has not 
+                                // been part of a network yet
+                                for(auto& ind : degenerate_connections.at(l_addr))
+                                {
+                                    // If not mark it as visited and add it to the current network
+                                    bool& other_joint_visied = visited.at(ind);
+                                    if(!other_joint_visied)
+                                    {
+                                        other_joint_visied = true;
+                                        curr_network[ind] = degenerate_map.at(ind);
+                                        network_expanded = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            // Delete joints marked in kill list as pending kill
-            // in reverse order to avoid problems with constant indices
+            cout << "Grouped degenerates" << endl;
+            // Debug information
+            cout << degenerate_networks.size() << endl;
+            for(auto& network : degenerate_networks)
+            {
+                for(auto& pair : network)
+                {
+                    cout << "[" << pair.first << "]: ";
+                    for(auto& l_addr : pair.second)
+                    {
+                        cout << l_addr << " ";
+                    }
+                    cout << endl;
+                }
+                cout << endl;
+            }
+            // If there are no degenerate joints with empty limbs
+            // the algorithm can be stopped
+            all_clear = (degenerate_networks.size() == 0);
+            std::vector<uint> kill_list;
+            // Take care of degenerate joints
+            for(auto& network : degenerate_networks)
+            {
+                // Find the "base" of this network
+                // Container for all dead limbs
+                std::vector<Limb*> dead_limbs;
+                for(auto& pair : network)
+                {
+                    dead_limbs.insert(dead_limbs.end(), pair.second.begin(), pair.second.end());
+                }
+                // Find the index of the joint that is not 
+                // positioned at the end of one of these dead limbs
+                uint base_ind = 0;
+                for(auto& pair : network)
+                {
+                    // For each degenerate joint index
+                    const uint& ind = pair.first;
+                    // Check if the note has no ending limbs present
+                    // or if the ending limb is not part of the list of 
+                    // dead limbs in this network
+                    Joint& j = joints.at(ind);
+                    if(!j.ending_limb_present || 
+                        std::find(dead_limbs.begin(), dead_limbs.end(), j.limbs.at(0)) != dead_limbs.end())
+                    {
+                        // If so this joint is the "base" of the entire network
+                        base_ind = ind;
+                    }
+                }
+                // If this network contains more than one degenerated joint
+                // merge them into one, in any case remove the dead limbs
+                uint n_network = network.size(); // Number of joints in this network
+                // Make the new joint a copy of the "base" joint of this network
+                Joint new_joint = joints.at(base_ind);
+                auto& new_limbs = new_joint.limbs;
+                for(auto& pair : network)
+                {
+                    const uint& ind = pair.first; 
+                    // Mark old joint to be removed later
+                    kill_list.push_back(ind);
+                    // For each joint in this network
+                    Joint& j = joints.at(ind);
+                    // Add its center to amd insert its limbs 
+                    // into the new joint
+                    // (except in the case of the "base" joint, 
+                    // its limbs are already present since the 
+                    // new joint is a copy of it)
+                    if(ind != base_ind)
+                    {
+                        new_joint.center_point += j.center_point;
+                        new_limbs.insert(new_limbs.end(), j.limbs.begin(), j.limbs.end());
+                    }
+                    // Remove dead limbs that have been copied over
+                    for(auto& dead_limb : pair.second)
+                    {
+                        new_limbs.erase(std::find(new_limbs.begin(), new_limbs.end(), dead_limb));
+                    }
+                }
+                // Center point of new joint is arithmetic mean of cumulative sum
+                new_joint.center_point /= n_network;
+                // Append new joint to end of joint list
+                joints.push_back(new_joint);
+                // Subtract network size from counter variable
+                // since that many joints will be removed (and 
+                // subsequently shorten the vector)
+                j_counter -= n_network;
+            }  
+            cout << "Fusions complete" << endl;       
+            // Sort indices of joints that shall be removed
+            std::sort(kill_list.begin(), kill_list.end());
+            // Delete unnecessary joints in reverse order
+            // to avoid problems with constant indices
             for(int k = kill_list.size() - 1; k >= 0; k--)
             {
                 uint& kill_ind = kill_list.at(k);
@@ -617,6 +684,8 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 std::advance(it, kill_ind);
                 joints.erase(it);
             }
+            cout << "Killed unnecessary" << endl;
+            break;
         }      
     };
     remove_overshadowed();
