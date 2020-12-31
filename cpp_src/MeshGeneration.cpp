@@ -389,6 +389,8 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         jmap_counter++;
     }
 
+    cout << joints.size() << endl;
+
     /*
     In order to combine the resulting limbs into one tree the squares at 
     each joint must be checked for "overshadowing". Overshadowing describes 
@@ -685,7 +687,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 joints.erase(it);
             }
             cout << "Killed unnecessary" << endl;
-            break;
         }      
     };
     remove_overshadowed();
