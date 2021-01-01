@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2020 Luai "TheBeautifulOrc" Malek
+// Copyright (C) 2019-2021 Luai "TheBeautifulOrc" Malek
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -400,7 +400,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         uint j_counter = 0;
         while(!all_clear)
         {
-            cout << "New iteration" << endl;
             // Counter does not get reset, so that only new joints get
             // processed in future iterations
             for(; j_counter < joints.size(); j_counter++)
@@ -512,6 +511,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 }
                 // cout << "\tRemoval done" << endl;
             }
+            
             // Map of all joints with degenerate (emtpy) limbs that need to
             // be reprocessed or even merged 
             std::map<uint, std::vector<Limb*>> degenerate_map;
@@ -533,6 +533,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                 }
             }
+            
             // Group degenerate joints into networks
             std::vector<std::map<uint, std::vector<Limb*>>> degenerate_networks;
             // Which degenerates have already been tracked inside a network
@@ -584,22 +585,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                 }
             }
-            
-            // Debug information
-            for(auto& network : degenerate_networks)
-            {
-                for(auto& pair : network)
-                {
-                    cout << "[" << pair.first << "]: ";
-                    for(auto& l_addr : pair.second)
-                    {
-                        cout << l_addr << " ";
-                    }
-                    cout << endl;
-                }
-                cout << endl;
-            }
-
+ 
             // If there are no degenerate joints with empty limbs
             // the algorithm can be stopped
             all_clear = (degenerate_networks.size() == 0);
@@ -634,11 +620,11 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                         break;
                     }
                 }
-                cout << "Base joint index: " << base_ind << endl;
+                
                 // If this network contains more than one degenerated joint
                 // merge them into one, in any case remove the dead limbs
                 uint n_network = network.size(); // Number of joints in this network
-                cout << "Number of degenerates: " << n_network << endl;
+               
                 // Make the new joint a copy of the "base" joint of this network
                 Joint new_joint = joints.at(base_ind);
                 auto& new_limbs = new_joint.limbs;
@@ -649,14 +635,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     kill_list.push_back(ind);
                     // For each joint in this network
                     Joint& j = joints.at(ind);
-                    cout << "\033[1mJoint " << ind << "\033[0m"<< endl;
-                    cout << "\033[36m" << j.center_point << "\033[0m" << endl;
-                    for(auto l : j.limbs)
-                    {
-                        bool dead_limb = std::find(pair.second.begin(), pair.second.end(), l) != pair.second.end();
-                        if(dead_limb) {cout << "\033[31m";}
-                        cout << l << "\033[0m" << endl;
-                    }
                     // Add its center to amd insert its limbs 
                     // into the new joint
                     // (except in the case of the "base" joint, 
@@ -673,16 +651,8 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                         new_limbs.erase(std::find(new_limbs.begin(), new_limbs.end(), dead_limb));
                     }
                 }
-                cout << "\033[1mNew joint\033[0m" << endl;
                 // Center point of new joint is arithmetic mean of cumulative sum
                 new_joint.center_point /= n_network;
-                //Debug
-                cout << "\033[33m" << new_joint.center_point << "\033[0m" << endl;
-                for(auto l : new_joint.limbs)
-                {
-                    cout << l << " ";
-                }
-                cout << endl << endl;
                 // Append new joint to end of joint list
                 joints.push_back(new_joint);
                 // Subtract network size from counter variable
