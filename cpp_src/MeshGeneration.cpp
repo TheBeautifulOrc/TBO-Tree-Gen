@@ -389,8 +389,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         jmap_counter++;
     }
 
-    cout << joints.size() << endl;
-
     /*
     In order to combine the resulting limbs into one tree the squares at 
     each joint must be checked for "overshadowing". Overshadowing describes 
@@ -402,7 +400,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         uint j_counter = 0;
         while(!all_clear)
         {
-            cout << endl << "Not clear" << endl;
+            cout << "New iteration" << endl;
             // Counter does not get reset, so that only new joints get
             // processed in future iterations
             for(; j_counter < joints.size(); j_counter++)
@@ -514,7 +512,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 }
                 // cout << "\tRemoval done" << endl;
             }
-            cout << "Detected overshadowed" << endl;
             // Map of all joints with degenerate (emtpy) limbs that need to
             // be reprocessed or even merged 
             std::map<uint, std::vector<Limb*>> degenerate_map;
@@ -536,7 +533,6 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                 }
             }
-            cout << "Detected degenerates" << endl;
             // Group degenerate joints into networks
             std::vector<std::map<uint, std::vector<Limb*>>> degenerate_networks;
             // Which degenerates have already been tracked inside a network
@@ -588,9 +584,8 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                 }
             }
-            cout << "Grouped degenerates" << endl;
+            
             // Debug information
-            cout << degenerate_networks.size() << endl;
             for(auto& network : degenerate_networks)
             {
                 for(auto& pair : network)
@@ -604,6 +599,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 }
                 cout << endl;
             }
+
             // If there are no degenerate joints with empty limbs
             // the algorithm can be stopped
             all_clear = (degenerate_networks.size() == 0);
@@ -630,15 +626,19 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     // dead limbs in this network
                     Joint& j = joints.at(ind);
                     if(!j.ending_limb_present || 
-                        std::find(dead_limbs.begin(), dead_limbs.end(), j.limbs.at(0)) != dead_limbs.end())
+                        std::find(dead_limbs.begin(), dead_limbs.end(), j.limbs.at(0)) == dead_limbs.end())
                     {
-                        // If so this joint is the "base" of the entire network
+                        // If so this joint is the "base" of the entire network...
                         base_ind = ind;
+                        // ... and the search can be stopped 
+                        break;
                     }
                 }
+                cout << "Base joint index: " << base_ind << endl;
                 // If this network contains more than one degenerated joint
                 // merge them into one, in any case remove the dead limbs
                 uint n_network = network.size(); // Number of joints in this network
+                cout << "Number of degenerates: " << n_network << endl;
                 // Make the new joint a copy of the "base" joint of this network
                 Joint new_joint = joints.at(base_ind);
                 auto& new_limbs = new_joint.limbs;
@@ -649,6 +649,14 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     kill_list.push_back(ind);
                     // For each joint in this network
                     Joint& j = joints.at(ind);
+                    cout << "\033[1mJoint " << ind << "\033[0m"<< endl;
+                    cout << "\033[36m" << j.center_point << "\033[0m" << endl;
+                    for(auto l : j.limbs)
+                    {
+                        bool dead_limb = std::find(pair.second.begin(), pair.second.end(), l) != pair.second.end();
+                        if(dead_limb) {cout << "\033[31m";}
+                        cout << l << "\033[0m" << endl;
+                    }
                     // Add its center to amd insert its limbs 
                     // into the new joint
                     // (except in the case of the "base" joint, 
@@ -665,16 +673,23 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                         new_limbs.erase(std::find(new_limbs.begin(), new_limbs.end(), dead_limb));
                     }
                 }
+                cout << "\033[1mNew joint\033[0m" << endl;
                 // Center point of new joint is arithmetic mean of cumulative sum
                 new_joint.center_point /= n_network;
+                //Debug
+                cout << "\033[33m" << new_joint.center_point << "\033[0m" << endl;
+                for(auto l : new_joint.limbs)
+                {
+                    cout << l << " ";
+                }
+                cout << endl << endl;
                 // Append new joint to end of joint list
                 joints.push_back(new_joint);
                 // Subtract network size from counter variable
                 // since that many joints will be removed (and 
                 // subsequently shorten the vector)
                 j_counter -= n_network;
-            }  
-            cout << "Fusions complete" << endl;       
+            }        
             // Sort indices of joints that shall be removed
             std::sort(kill_list.begin(), kill_list.end());
             // Delete unnecessary joints in reverse order
@@ -686,8 +701,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 std::advance(it, kill_ind);
                 joints.erase(it);
             }
-            cout << "Killed unnecessary" << endl;
-        }      
+        }    
     };
     remove_overshadowed();
 

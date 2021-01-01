@@ -28,30 +28,15 @@ import bpy
 import math
 from bpy.props import PointerProperty
 
-modules = [
-    "numba",    # JIT-compiler for faster code execution
-    "pybind11"  # Tools for binding C++ to Python
-    ]
-
 if "bpy" in locals():
     # pylint: disable=import-error
     import importlib
-    from .py_src import PackageHandler
-    importlib.reload(PackageHandler)
-    # Check for dependencies and install if necessary
-    PackageHandler.handle_packages(modules)
     from .py_src import TreeProperties
     importlib.reload(TreeProperties)
-    from .py_src import TreeNodes
-    importlib.reload(TreeNodes)
-    from .py_src import SpaceColonialization
-    importlib.reload(SpaceColonialization)
     from .py_src import Utility
     importlib.reload(Utility)
     from .py_src import Panels
     importlib.reload(Panels)
-    from .py_src import TreeObjects
-    importlib.reload(TreeObjects)
     from .py_src import MeshGenration
     importlib.reload(MeshGenration)
     from .py_src import Operators
@@ -72,8 +57,6 @@ def register():
     for cl in classes:
         bpy.utils.register_class(cl)
     bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)  # pylint: disable=assignment-from-no-return
-    # Check for dependencies and install if necessary
-    PackageHandler.handle_packages(modules)
 
 def unregister():
     for cl in reversed(classes):
