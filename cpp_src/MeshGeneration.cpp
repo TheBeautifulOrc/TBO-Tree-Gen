@@ -675,6 +675,15 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     };
     remove_overshadowed();
 
+    /*
+    Remove unnecessary limbs and joints
+    */
+    auto cleanup = [&] ()
+    {
+        
+    };
+    cleanup();
+
     // Return data to python interface
     std::vector<Eigen::Vector3d> combined_point_data;
     // Debug
