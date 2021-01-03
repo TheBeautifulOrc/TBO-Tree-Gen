@@ -35,6 +35,8 @@ const Matrix3d ref_coords = Matrix3d::Identity();
 const std::array<int, 4> x_permuation {1,-1,-1,1};
 const std::array<int, 4> y_permuation {1,1,-1,-1};
 
+using quickhull::ConvexHull;
+
 struct Centroid
 {
     Vector3d location;
@@ -681,9 +683,48 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     */
     auto cleanup = [&] ()
     {
-        
+        // Convert leaf table from vector into map
+        std::map<Limb*, bool> p_leaf_map;
+        for(uint l = 0; l < squares.size(); l++)
+        {
+            p_leaf_map[&squares.at(l)] = leaf_table.at(l);
+        }
+        // Remove all leaf limbs from joints that only have one square or less
+        for(auto& j : joints)
+        {
+            auto& limbs = j.limbs;
+            limbs.erase(std::remove_if(limbs.begin(), limbs.end(), [&](Limb* l){return (p_leaf_map.at(l)) && (l->size() < 2);}), limbs.end());
+        }
+        // Erase all joints that have less than to connected limbs
+        joints.erase(std::remove_if(joints.begin(), joints.end(), [](Joint& j){return j.limbs.size() < 2;}), joints.end());
+        // Map showing which limbs are still part of the tree
+        std::map<Limb*, bool> part_of_tree;
+        for(Limb& l : squares)
+        {
+            part_of_tree[&l] = false;
+        }
+        for(Joint& j : joints)
+        {
+            for(Limb* l : j.limbs)
+            {
+                part_of_tree.at(l) = true;
+            }
+        }
+        // Remove all limbs that are either empty or not part of the tree anymore 
+        squares.erase(std::remove_if(squares.begin(), squares.end(), [&](Limb& l){return ((l.size() < 1) || (!part_of_tree.at(&l))); }), squares.end());
     };
     cleanup();
+
+    /*
+    Generate convex hulls around joints. 
+    (after the previous cleanup step we can assume 
+    that all joints have at least two non co-planar squares)
+    */
+    auto generate_convex_hulls = [&] ()
+    {
+        // TODO: Implement convex hull generation for every joint
+    };
+    generate_convex_hulls();
 
     // Return data to python interface
     std::vector<Eigen::Vector3d> combined_point_data;
