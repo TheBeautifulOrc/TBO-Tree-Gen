@@ -19,6 +19,7 @@
 #include <Eigen/Dense>
 #include "TreeNodes.hpp"
 #include "Utility.hpp"
+#include "external/quickhull/QuickHull.hpp"
 
 // Debug
 #include <iostream>

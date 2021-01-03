@@ -1,10 +1,10 @@
 find_package(Eigen3 3.3 REQUIRED)
 find_package(nanoflann REQUIRED)
+add_subdirectory(external)
 
 # Utility module
 add_library(Utility Utility.cpp)
 target_include_directories(Utility INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-target_include_directories(Utility PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/splines)
 target_link_libraries(Utility PRIVATE 
     Eigen3::Eigen
 )
@@ -24,4 +24,5 @@ target_link_libraries(MeshGeneration PRIVATE
     Eigen3::Eigen
     Utility
     TreeNodes
+    QuickHull
 )

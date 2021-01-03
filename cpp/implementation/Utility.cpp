@@ -15,7 +15,7 @@
 
 #include "Utility.hpp"
 #include <cmath>
-#include "Splines.hpp"
+#include "external/splines/Splines.hpp"
 
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
