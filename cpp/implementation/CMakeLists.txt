@@ -4,6 +4,7 @@ find_package(nanoflann REQUIRED)
 # Utility module
 add_library(Utility Utility.cpp)
 target_include_directories(Utility INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(Utility PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/splines)
 target_link_libraries(Utility PRIVATE 
     Eigen3::Eigen
 )
