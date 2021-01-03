@@ -18,7 +18,7 @@
 import bpy
 import bmesh
 from .TreeProperties import TreeProperties
-from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, generate_mesh_data
+from ..cpp.build.TreeGenModule import TreeNode, TreeNodeContainer, generate_mesh_data
 
 def genrate_skeletal_mesh(obj : bpy.types.Object, tnc : TreeNodeContainer):
     # Create bmesh-object

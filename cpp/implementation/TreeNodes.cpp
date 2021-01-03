@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#include "TreeNodes.h"
-#include "Utility.h"
+#include "TreeNodes.hpp"
+#include "Utility.hpp"
 #include <cmath>
 #include <vector>
 #include <map>

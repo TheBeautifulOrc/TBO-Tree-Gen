@@ -20,8 +20,8 @@
 #include <Eigen/Core>
 #include <string>
 #include <vector>
-#include "TreeNodes.h"
-#include "MeshGeneration.h"
+#include "TreeNodes.hpp"
+#include "MeshGeneration.hpp"
 
 namespace py = pybind11;
 using namespace py::literals;

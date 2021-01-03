@@ -27,7 +27,7 @@ from mathutils import Vector
 import numpy as np
 from .TreeProperties import TreeProperties
 from .Utility import get_points_in_object
-from ..cpp_bin.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes, separate_by_id, reduce_nodes, calculate_weights
+from ..cpp.build.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes, separate_by_id, reduce_nodes, calculate_weights
 from .MeshGenration import genrate_skeletal_mesh, generate_mesh
 
 class CreateTree(Operator):

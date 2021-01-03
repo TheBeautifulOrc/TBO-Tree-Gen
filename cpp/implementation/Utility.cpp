@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-#include "Utility.h"
+#include "Utility.hpp"
 #include <cmath>
-#include "../cpp_extern/Splines/Spline.h"
+#include "external/splines/Splines.hpp"
 
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
