@@ -13,13 +13,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// TODO: Rewrite vector erasing to follow erase-remove-idiom
+
 #include "MeshGeneration.hpp"
 #include <map>
 #include <algorithm>
 #include <Eigen/Dense>
 #include "TreeNodes.hpp"
 #include "Utility.hpp"
-#include "external/quickhull/QuickHull.hpp"
 
 // Debug
 #include <iostream>
@@ -34,8 +35,6 @@ using Limb = std::vector<Square>;
 const Matrix3d ref_coords = Matrix3d::Identity();
 const std::array<int, 4> x_permuation {1,-1,-1,1};
 const std::array<int, 4> y_permuation {1,1,-1,-1};
-
-using quickhull::ConvexHull;
 
 struct Centroid
 {
@@ -61,6 +60,119 @@ struct Joint
     Vector3d center_point;
 };
 
+struct Triangle
+{
+    std::array<Vector3d*, 3> verts;
+    Vector3d normal;
+    Triangle(std::array<Vector3d*, 3>& points, Vector3d& center_point)
+    {
+        // Treat point 0 as reference point and
+        verts.at(0) = points.at(0);
+        // calculate normal between (0;1) and (0;2)
+        normal = (*points.at(1)-*points.at(0)).cross(*points.at(2)-*points.at(0)).normalized();
+        // Is this orientation of the triangle correct with respect to the center point
+        // (which should be beneath the triangle)
+        bool orientation_correct = leq(distance_to_point(&center_point), 0.0);
+        // Fill in missing values in correct orientation
+        normal = orientation_correct ? normal : -normal;
+        verts.at(1) = orientation_correct ? points.at(1) : points.at(2);
+        verts.at(2) = orientation_correct ? points.at(2) : points.at(1);
+    }
+    auto distance_to_point(Vector3d* point) -> double
+    {
+        return (*point - *verts.at(0)).dot(normal);
+    }
+};
+
+struct Edge
+{
+    std::pair<Vector3d*, Vector3d*> verts;
+    Edge(std::pair<Vector3d*, Vector3d*> _verts)
+    {
+        bool first_smaller = _verts.first < _verts.second;
+        verts.first = first_smaller ? _verts.first : _verts.second;
+        verts.second = first_smaller ? _verts.second : _verts.first;
+    }
+    Edge(Vector3d* _first_vert, Vector3d* _second_verts)
+    {
+        bool first_smaller = _first_vert < _second_verts;
+        verts.first = first_smaller ? _first_vert : _second_verts;
+        verts.second = first_smaller ? _second_verts : _first_vert;
+    }
+};
+
+auto get_triangle_edges(Triangle& tri) -> std::vector<Edge>
+{
+    std::vector<Edge> res(3);
+    auto combinations = combine_n_over_k(3,2);
+    for(uint c = 0; c < 3; ++c)
+    {
+        auto& comb = combinations.at(c);
+        res.at(c) = Edge(tri.verts.at(comb.at(0)), tri.verts.at(comb.at(1)));
+    }
+}
+
+struct ConvexHull
+{
+    std::vector<Triangle> facets;
+    Vector3d center_point {0.0,0.0,0.0};
+    ConvexHull(std::vector<Vector3d*>& points)
+    {
+        // Container for verts making up the first polyhedron
+        std::array<Vector3d*, 4> simplex_points;
+        // Initial polyhedron will be built form three points 
+        // from the first square, one from the second square
+        for(uint i = 0; i < 4; ++i)
+        {
+            Vector3d* p = points.at(i+1);
+            simplex_points.at(i) = p;
+        }
+        // Calculate initial center point
+        for(auto p : simplex_points)
+        {
+            center_point += *p;
+        }
+        uint n_assigned = 4;
+        center_point /= n_assigned;
+        // Create initial facets 
+        std::vector<std::vector<uint>> recombinations = combine_n_over_k(4,3);
+        for(auto& comb : recombinations)
+        {
+            std::array<Vector3d*, 3> tri_points {simplex_points.at(comb.at(0)), simplex_points.at(comb.at(1)), simplex_points.at(comb.at(2))};
+            facets.push_back(Triangle(tri_points, center_point));
+        }
+        // Since there all of the points in this algorithm must
+        // be part of the convex hull, each point can simply be connevted
+        // to the "ridge" of faces that are "visible" from it's position
+        for(auto p : points)
+        {
+            // Find all facets which are visible from p
+            std::vector<Triangle*> visible_facets;
+            auto process_facets = [&](Triangle& facet)
+            {
+                bool visible = facet.distance_to_point(p) > 0.0;
+                if(visible)
+                {
+                    visible_facets.push_back(&facet);
+                }
+                return visible;
+            };
+            // Delete them out of the collection of facets
+            // since they will not be needed anymore 
+            facets.erase(std::remove_if(facets.begin(), facets.end(), process_facets), facets.end());
+            // Get edges of all visible facets and count 
+            // their number of occurences 
+            std::vector<Edge> visible_edges;
+            visible_edges.reserve(visible_facets.size()*3);
+            for(auto visible : visible_facets)
+            {
+                auto new_edges = get_triangle_edges(*visible);
+                visible_edges.insert(visible_edges.end(), new_edges.begin(), new_edges.end());
+            }
+        }
+    }
+};
+
 auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode) 
     -> std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>>
 {
@@ -71,7 +183,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     Calculate radii of all nodes
     */ 
     std::vector<double> node_radii(n_nodes);
-    for (size_t n = 0; n < n_nodes; n++)
+    for (size_t n = 0; n < n_nodes; ++n)
     {
         double& curr_radius = node_radii.at(n);
         // Basic formula for nodes radius
@@ -92,7 +204,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         // Find branching points (root node is part of this colletion by definition)
         std::vector<uint> branching_point_inds = {0};
         // Check all points for those with more than one child (branching points)
-        for(uint n = 1; n < n_nodes; n++)
+        for(uint n = 1; n < n_nodes; ++n)
         {
             if(tnc.at(n).child_indices.size() > 1)
             {
@@ -136,7 +248,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     std::vector<bool> leaf_table(n_limbs);  
     auto create_limb_maps = [&] ()
     {
-        for(uint l = 0; l < n_limbs; l++)
+        for(uint l = 0; l < n_limbs; ++l)
         {
             const std::vector<uint>& curr_limb = limb_indices.at(l);
             const uint& front = curr_limb.front();
@@ -182,7 +294,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         Calculate points in between connected nodes, necessary to satisfy desired loop distance
         */
         std::vector<std::vector<Centroid>> centroids(n_limbs);
-        for(uint l = 0; l < n_limbs; l++)
+        for(uint l = 0; l < n_limbs; ++l)
         {
             // The current limb indices
             const std::vector<uint>& l_limb_indices = limb_indices.at(l);
@@ -195,7 +307,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             // Container storing addresses of all node locations and radii
             std::vector<const Vector3d*> l_node_locs(l_n_nodes);
             std::vector<const double*> l_node_radii(l_n_nodes);
-            for(uint n = 0; n < l_n_nodes; n++)
+            for(uint n = 0; n < l_n_nodes; ++n)
             {
                 l_node_locs.at(n) = &tnc.at(l_limb_indices.at(n)).location;
                 l_node_radii.at(n) = &node_radii.at(l_limb_indices.at(n));
@@ -204,7 +316,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             std::vector<Vector3d> diffs(l_n_sections);
             // Positions of points in between nodes (in '(0,1)')
             std::vector<std::vector<double>> l_local_positions(l_n_sections);
-            for(uint s = 0; s < l_n_sections; s++)
+            for(uint s = 0; s < l_n_sections; ++s)
             {
                 // Calculate difference vector
                 Vector3d& diff = diffs.at(s);
@@ -218,7 +330,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 double offset = (dist - (n_points - 1) * loop_distance) / 2;
                 // Calculate local position of intermediate point relative to neighboring nodes
                 std::vector<double> section_positions(n_points);
-                for(uint p = 0; p < n_points; p++)
+                for(uint p = 0; p < n_points; ++p)
                 {
                     section_positions.at(p) = (offset + (loop_distance * p)) / dist;
                 }
@@ -237,7 +349,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 spline.init(l_node_locs);
             }
             // For each section of the limb...
-            for(uint s = 0; s < l_n_sections; s++)
+            for(uint s = 0; s < l_n_sections; ++s)
             {
                 // References to global data structures for better handling 
                 const Vector3d& section_root_loc = *l_node_locs.at(s);
@@ -251,7 +363,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 // Linear interpolation
                 if(linear_interpolation)
                 {
-                    for(uint p = 0; p < n_section_points; p++)
+                    for(uint p = 0; p < n_section_points; ++p)
                     {
                         // Each vector is the sum of the location of the node at the beginning
                         // of this section and the vector pointing to the next node weighted by 
@@ -262,7 +374,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 // Cubic interpolation
                 else
                 {
-                    for(uint p = 0; p < n_section_points; p++)
+                    for(uint p = 0; p < n_section_points; ++p)
                     {
                         // Convert local position and section counter into global position on limb
                         double w = spline.to_w(section_positions.at(p), s);
@@ -271,7 +383,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                 }
                 // In any case linearly interpolate the weight of the in between point
-                for(uint p = 0; p < n_section_points; p++)
+                for(uint p = 0; p < n_section_points; ++p)
                 {
                     const double& pos = section_positions.at(p);
                     section_centroids.at(p).radius = section_root_radius * (1-pos) + section_end_radius * pos;
@@ -287,7 +399,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         Calculate local coordinate systems
         */
         std::vector<std::vector<Matrix3d>> local_coordinate_systems(n_limbs);
-        for(uint l = 0; l < n_limbs; l++)
+        for(uint l = 0; l < n_limbs; ++l)
         {
             // Centroids of this limb
             std::vector<Centroid>& l_centroids = centroids.at(l);
@@ -298,7 +410,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             l_lcs = std::vector<Matrix3d>(n_l_centroids);
             // Pointer-container for centroid locations
             std::vector<Vector3d*> l_locations(n_l_centroids);
-            for(uint c = 0; c < n_l_centroids; c++)
+            for(uint c = 0; c < n_l_centroids; ++c)
             {
                 Centroid& cent = l_centroids.at(c);
                 l_locations.at(c) = &cent.location;
@@ -306,7 +418,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             
             // Tangent of each section 
             std::vector<Vector3d> l_tangents(n_sections);
-            for(uint s = 0; s < n_sections; s++)
+            for(uint s = 0; s < n_sections; ++s)
             {
                 l_tangents.at(s) = (*l_locations.at(s+1) - *l_locations.at(s)).normalized();
             }
@@ -315,7 +427,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             l_lcs.back().row(0) = l_tangents.back();
             // The other centroid tangents are the arithmetic mean of the tangents
             // of their adjacent sections
-            for(uint t = 0; t < n_sections - 1; t++)
+            for(uint t = 0; t < n_sections - 1; ++t)
             {
                 l_lcs.at(t+1).row(0) = (l_tangents.at(t) + l_tangents.at(t+1)).normalized();
             }
@@ -325,7 +437,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             coordinate systems can now be calculated
             */
             // Global coordinates
-            for(uint c = 0; c < n_l_centroids; c++)
+            for(uint c = 0; c < n_l_centroids; ++c)
             {
                 const Matrix3d& last_coord_sys = (c == 0) ? ref_coords : l_lcs.at(c-1);
                 Matrix3d& curr_coord_sys = l_lcs.at(c);
@@ -346,21 +458,21 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         Sweep square profile along calculated positions
         */
         squares = std::vector<Limb>(n_limbs);
-        for(uint l = 0; l < n_limbs; l++)
+        for(uint l = 0; l < n_limbs; ++l)
         {
             std::vector<Centroid>& l_centroids = centroids.at(l);
             std::vector<Matrix3d>& l_lcs = local_coordinate_systems.at(l);
             uint n_l_squares = l_lcs.size();
             Limb& l_squares = squares.at(l);
             l_squares = Limb(n_l_squares);
-            for(uint s = 0; s < n_l_squares; s++)
+            for(uint s = 0; s < n_l_squares; ++s)
             {
                 Centroid& centroid = l_centroids.at(s);
                 Vector3d& pos = centroid.location;
                 double& rad = centroid.radius;
                 Matrix3d& lcs = l_lcs.at(s);
                 Square& square = l_squares.at(s);
-                for(uint v = 0; v < 4; v++)
+                for(uint v = 0; v < 4; ++v)
                 {
                     Vector3d dir_vec = (lcs.row(1) * x_permuation.at(v) + lcs.row(2) * y_permuation.at(v)).transpose();
                     square.at(v) = pos + rad * dir_vec;
@@ -381,7 +493,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         uint n_j_limbs = elem.second.size();
         new_joint.limbs = std::vector<Limb*>(n_j_limbs);
         new_joint.center_point = tnc.at(elem.first).location;
-        for(uint l = 0; l < n_j_limbs; l++)
+        for(uint l = 0; l < n_j_limbs; ++l)
         {
             JointMapEntry entry = elem.second.at(l);
             auto limb_address = &squares.at(entry.limb_index);
@@ -421,7 +533,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 {
                     // Check can not be done if there are any degenerate joints
                     bool limbs_valid = true;
-                    for(uint l = 0; l < n_j_limbs; l++)
+                    for(uint l = 0; l < n_j_limbs; ++l)
                     {
                         limbs_valid &= offset_map.at(l) < j_limbs.at(l)->size();
                     }
@@ -431,7 +543,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                     // Get relevant squares
                     std::vector<Limb::iterator> squares_to_test(n_j_limbs);
-                    for(uint l = 0; l < n_j_limbs; l++)
+                    for(uint l = 0; l < n_j_limbs; ++l)
                     {
                         auto it = j_limbs.at(l)->begin();
                         uint advancement = (l == 0 && j.ending_limb_present) ? (j_limbs.at(l)->size() - (1 + offset_map.at(l))) : offset_map.at(l);
@@ -440,7 +552,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                     }
                     // Check each square for overshadowing
                     std::vector<bool> overshadowed(n_j_limbs, false);
-                    for(uint l = 0; l < n_j_limbs; l++)
+                    for(uint l = 0; l < n_j_limbs; ++l)
                     {
                         // Currently tested square
                         auto curr_square = squares_to_test.at(l);
@@ -469,7 +581,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                                     // Other square
                                     auto comp_square = squares_to_test.at(ll);
                                     // For each of the other squares vertices
-                                    for(uint v = 0; v < 4; v++)
+                                    for(uint v = 0; v < 4; ++v)
                                     {
                                         // Selected vertex
                                         Vector3d& comp_vert = comp_square->at(v);
@@ -493,7 +605,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
                 }
                 // cout << "\tDetection done" << endl;
                 // Remove overshadowed squares from limbs
-                for(uint l = 0; l < n_j_limbs; l++)
+                for(uint l = 0; l < n_j_limbs; ++l)
                 {
                     // Limb of which data will be removed
                     auto p_limb = j_limbs.at(l);
@@ -520,11 +632,11 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             std::map<uint, std::vector<Limb*>> degenerate_map;
             std::map<Limb*, std::vector<uint>> degenerate_connections;
             // Detect degenerate joints
-            for(uint j = 0; j < joints.size(); j++)
+            for(uint j = 0; j < joints.size(); ++j)
             {
                 uint n_j_limbs = joints.at(j).limbs.size();
                 // Check for empty limbs
-                for(uint l = 0; l < n_j_limbs; l++)
+                for(uint l = 0; l < n_j_limbs; ++l)
                 {
                     auto limb = joints.at(j).limbs.at(l);
                     if(limb->size() == 0)
@@ -685,7 +797,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     {
         // Convert leaf table from vector into map
         std::map<Limb*, bool> p_leaf_map;
-        for(uint l = 0; l < squares.size(); l++)
+        for(uint l = 0; l < squares.size(); ++l)
         {
             p_leaf_map[&squares.at(l)] = leaf_table.at(l);
         }
@@ -695,7 +807,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             auto& limbs = j.limbs;
             limbs.erase(std::remove_if(limbs.begin(), limbs.end(), [&](Limb* l){return (p_leaf_map.at(l)) && (l->size() < 2);}), limbs.end());
         }
-        // Erase all joints that have less than to connected limbs
+        // Erase all joints that have less than two connected limbs
         joints.erase(std::remove_if(joints.begin(), joints.end(), [](Joint& j){return j.limbs.size() < 2;}), joints.end());
         // Map showing which limbs are still part of the tree
         std::map<Limb*, bool> part_of_tree;
@@ -722,7 +834,25 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     */
     auto generate_convex_hulls = [&] ()
     {
-        // TODO: Implement convex hull generation for every joint
+        // Joint of which the convex hull will be built 
+        Joint& j = joints.at(0);
+        // Number of limbs in this joint 
+        const uint n_j_limbs = j.limbs.size();
+        const uint n_verts = n_j_limbs*4;
+        // Container for vertices of which the convex hull will be built
+        std::vector<Vector3d*> joint_verts(n_verts);
+        // Fill vertex container with values
+        for(uint l = 0; l < n_j_limbs; ++l)
+        {
+            Limb* limb = j.limbs.at(l);
+            Square& relevant_square = (j.ending_limb_present && l == 0) ? limb->back() : limb->front();
+            for(uint v = 0; v < 4; ++v)
+            {
+                joint_verts.at(l*4+v) = &relevant_square.at(v);
+            }
+        }
+        // Create convex hull
+        ConvexHull qh(joint_verts);
     };
     generate_convex_hulls();
 

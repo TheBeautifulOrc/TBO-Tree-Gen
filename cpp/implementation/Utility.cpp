@@ -93,3 +93,24 @@ auto Spline3d::evaluate(const double& pos) -> Vector3d
 {
     return Vector3d((*x_spline)(pos), (*y_spline)(pos), (*z_spline)(pos));
 }
+
+auto combine_n_over_k(int n, int k) -> std::vector<std::vector<uint>>
+{
+    std::string bitmask(k, 1); // k leading 1's
+    bitmask.resize(n, 0); // n-k trailing 0's
+    std::vector<std::vector<uint>> res;
+    // print integers and permute bitmask
+    do 
+    {
+        std::vector<uint> comb;
+        for(int i = 0; i < n; ++i) // [0..n-1] integers
+        {
+            if(bitmask[i])
+            {
+                comb.push_back(i);
+            }
+        }
+        res.push_back(comb);
+    } while (std::prev_permutation(bitmask.begin(), bitmask.end()));
+    return res;
+}

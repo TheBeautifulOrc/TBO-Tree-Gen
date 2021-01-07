@@ -46,3 +46,5 @@ class Spline3d
     auto evaluate(const double& pos) -> Eigen::Vector3d;
     inline auto get_w() -> std::vector<double> { return w; };
 };
+
+auto combine_n_over_k(int n, int k) -> std::vector<std::vector<uint>>;

@@ -24,5 +24,4 @@ target_link_libraries(MeshGeneration PRIVATE
     Eigen3::Eigen
     Utility
     TreeNodes
-    QuickHull
 )

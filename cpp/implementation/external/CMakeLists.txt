@@ -1,2 +1,1 @@
 add_subdirectory(splines)
-add_subdirectory(quickhull)
