@@ -109,7 +109,6 @@ struct ConvexHull
 {
     std::vector<Triangle> facets;
     Vector3d center_point {0.0,0.0,0.0};
-    // TODO: Remove translation_map from function signature
     ConvexHull(std::vector<Vector3d*>& points)
     {
         // Container for verts making up the first polyhedron
@@ -145,7 +144,7 @@ struct ConvexHull
             {
                 Vector3d* p = points.at(p_counter);
                 // Find all facets which are visible from p
-                std::vector<Triangle*> visible_facets;
+                std::vector<Triangle> visible_facets;
                 // Indicate whether faces are visible from p,
                 // if so add them to visible_facets
                 auto process_facets = [&](Triangle& facet)
@@ -153,19 +152,21 @@ struct ConvexHull
                     bool visible = facet.distance_to_point(p) > 0.0 + __DBL_EPSILON__;
                     if(visible)
                     {
-                        visible_facets.push_back(&facet);
+                        visible_facets.push_back(facet);
                     }
                     return visible;
                 };
                 // Delete them out of the collection of facets
                 // since they will not be needed anymore 
-                facets.erase(std::remove_if(facets.begin(), facets.end(), process_facets), facets.end());
+                std::vector<Triangle>::iterator it;
+                it = std::remove_if(facets.begin(), facets.end(), process_facets);
+                facets.erase(it, facets.end());
                 // Get edges of all visible facets 
                 std::vector<Edge> visible_edges;
                 visible_edges.reserve(visible_facets.size() * 3);
-                for(auto visible : visible_facets)
+                for(auto& visible : visible_facets)
                 {
-                    auto new_edges = get_triangle_edges(*visible);
+                    auto new_edges = get_triangle_edges(visible);
                     visible_edges.insert(visible_edges.end(), new_edges.begin(), new_edges.end());
                 }
                 // Delete all edges that occur more than once 
@@ -811,8 +812,9 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     remove_overshadowed();
 
     /*
-    Remove unnecessary limbs and joints
+    Remove unnecessary joints
     */
+    std::map<Limb*, bool> limbs_used;
     auto cleanup = [&] ()
     {
         // Convert leaf table from vector into map
@@ -829,21 +831,14 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
         }
         // Erase all joints that have less than two connected limbs
         joints.erase(std::remove_if(joints.begin(), joints.end(), [](Joint& j){return j.limbs.size() < 2;}), joints.end());
-        // Map showing which limbs are still part of the tree
-        std::map<Limb*, bool> part_of_tree;
-        for(Limb& l : squares)
+        // Mark unused limbs as such
+        for(auto& j : joints)
         {
-            part_of_tree[&l] = false;
-        }
-        for(Joint& j : joints)
-        {
-            for(Limb* l : j.limbs)
+            for(auto l : j.limbs)
             {
-                part_of_tree.at(l) = true;
+                limbs_used[l] = true;
             }
         }
-        // Remove all limbs that are either empty or not part of the tree anymore 
-        squares.erase(std::remove_if(squares.begin(), squares.end(), [&](Limb& l){return ((l.size() < 1) || (!part_of_tree.at(&l))); }), squares.end());
     };
     cleanup();
 
@@ -854,39 +849,44 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     */
     auto generate_convex_hulls = [&] ()
     {
-        // Joint of which the convex hull will be built 
-        Joint& j = joints.at(0);
-        // Number of limbs in this joint 
-        const uint n_j_limbs = j.limbs.size();
-        const uint n_verts = n_j_limbs*4;
-        // Container for vertices of which the convex hull will be built
-        std::vector<Vector3d*> joint_verts(n_verts);
-        // Fill vertex container with values
-        for(uint l = 0; l < n_j_limbs; ++l)
+        for(uint j_counter = 0; j_counter < joints.size(); ++j_counter)
         {
-            Limb* limb = j.limbs.at(l);
-            Square& relevant_square = (j.ending_limb_present && l == 0) ? limb->back() : limb->front();
-            for(uint v = 0; v < 4; ++v)
+            // Joint of which the convex hull will be built 
+            Joint& j = joints.at(j_counter);
+            // Number of limbs in this joint 
+            const uint n_j_limbs = j.limbs.size();
+            const uint n_verts = n_j_limbs*4;
+            // Container for vertices of which the convex hull will be built
+            std::vector<Vector3d*> joint_verts(n_verts);
+            // Fill vertex container with values
+            for(uint l = 0; l < n_j_limbs; ++l)
             {
-                joint_verts.at(l*4+v) = &relevant_square.at(v);
+                Limb* limb = j.limbs.at(l);
+                Square* relevant_square = (j.ending_limb_present && l == 0) ? &limb->back() : &limb->front();
+                for(uint v = 0; v < 4; ++v)
+                {
+                    joint_verts.at(l*4+v) = &relevant_square->at(v);
+                }
             }
+            // Create convex hull
+            ConvexHull qh(joint_verts);
         }
-        // Create convex hull
-        ConvexHull qh(joint_verts);
     };
     generate_convex_hulls();
 
     // Return data to python interface
-    std::vector<Eigen::Vector3d> combined_point_data;
-    // Debug
+    std::vector<Vector3d> ret_verts;
     for(auto& l_squares : squares)
     {
-        for(auto& square : l_squares)
+        if(limbs_used[&l_squares])
         {
-            combined_point_data.insert(combined_point_data.end(), square.begin(), square.end());
+            for(auto& square : l_squares)
+            {
+                ret_verts.insert(ret_verts.end(), square.begin(), square.end());
+            }
         }
     }
     std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> ret_val;
-    std::get<0>(ret_val) = combined_point_data;
+    std::get<0>(ret_val) = ret_verts;
     return ret_val;
 }
