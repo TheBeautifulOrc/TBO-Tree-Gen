@@ -18,6 +18,7 @@
 #include "MeshGeneration.hpp"
 #include <map>
 #include <algorithm>
+#include <set>
 #include <Eigen/Dense>
 #include "TreeNodes.hpp"
 #include "Utility.hpp"
@@ -31,6 +32,7 @@ using Eigen::Vector3d;
 using Eigen::Matrix3d;
 using Square = std::array<Vector3d, 4>;
 using Limb = std::vector<Square>;
+using Edge = std::pair<Vector3d*, Vector3d*>;
 
 const Matrix3d ref_coords = Matrix3d::Identity();
 const std::array<int, 4> x_permuation {1,-1,-1,1};
@@ -84,23 +86,6 @@ struct Triangle
     }
 };
 
-struct Edge
-{
-    std::pair<Vector3d*, Vector3d*> verts;
-    Edge(std::pair<Vector3d*, Vector3d*> _verts)
-    {
-        bool first_smaller = _verts.first < _verts.second;
-        verts.first = first_smaller ? _verts.first : _verts.second;
-        verts.second = first_smaller ? _verts.second : _verts.first;
-    }
-    Edge(Vector3d* _first_vert, Vector3d* _second_verts)
-    {
-        bool first_smaller = _first_vert < _second_verts;
-        verts.first = first_smaller ? _first_vert : _second_verts;
-        verts.second = first_smaller ? _second_verts : _first_vert;
-    }
-};
-
 auto get_triangle_edges(Triangle& tri) -> std::vector<Edge>
 {
     std::vector<Edge> res(3);
@@ -108,14 +93,23 @@ auto get_triangle_edges(Triangle& tri) -> std::vector<Edge>
     for(uint c = 0; c < 3; ++c)
     {
         auto& comb = combinations.at(c);
-        res.at(c) = Edge(tri.verts.at(comb.at(0)), tri.verts.at(comb.at(1)));
+        Edge e(tri.verts.at(comb.at(0)), tri.verts.at(comb.at(1)));
+        if(e.first > e.second)
+        {
+            Vector3d* p = e.first;
+            e.first = e.second;
+            e.second = p;
+        }
+        res.at(c) = e;
     }
+    return res;
 }
 
 struct ConvexHull
 {
     std::vector<Triangle> facets;
     Vector3d center_point {0.0,0.0,0.0};
+    // TODO: Remove translation_map from function signature
     ConvexHull(std::vector<Vector3d*>& points)
     {
         // Container for verts making up the first polyhedron
@@ -144,30 +138,56 @@ struct ConvexHull
         // Since there all of the points in this algorithm must
         // be part of the convex hull, each point can simply be connevted
         // to the "ridge" of faces that are "visible" from it's position
-        for(auto p : points)
+        for(uint p_counter = 0; p_counter < points.size(); ++p_counter)
         {
-            // Find all facets which are visible from p
-            std::vector<Triangle*> visible_facets;
-            auto process_facets = [&](Triangle& facet)
+            // Skip points that are already part of the first simplex
+            if(!(p_counter > 0 && p_counter < 5))
             {
-                bool visible = facet.distance_to_point(p) > 0.0;
-                if(visible)
+                Vector3d* p = points.at(p_counter);
+                // Find all facets which are visible from p
+                std::vector<Triangle*> visible_facets;
+                // Indicate whether faces are visible from p,
+                // if so add them to visible_facets
+                auto process_facets = [&](Triangle& facet)
                 {
-                    visible_facets.push_back(&facet);
+                    bool visible = facet.distance_to_point(p) > 0.0 + __DBL_EPSILON__;
+                    if(visible)
+                    {
+                        visible_facets.push_back(&facet);
+                    }
+                    return visible;
+                };
+                // Delete them out of the collection of facets
+                // since they will not be needed anymore 
+                facets.erase(std::remove_if(facets.begin(), facets.end(), process_facets), facets.end());
+                // Get edges of all visible facets 
+                std::vector<Edge> visible_edges;
+                visible_edges.reserve(visible_facets.size() * 3);
+                for(auto visible : visible_facets)
+                {
+                    auto new_edges = get_triangle_edges(*visible);
+                    visible_edges.insert(visible_edges.end(), new_edges.begin(), new_edges.end());
                 }
-                return visible;
-            };
-            // Delete them out of the collection of facets
-            // since they will not be needed anymore 
-            facets.erase(std::remove_if(facets.begin(), facets.end(), process_facets), facets.end());
-            // Get edges of all visible facets and count 
-            // their number of occurences 
-            std::vector<Edge> visible_edges;
-            visible_edges.reserve(visible_facets.size()*3);
-            for(auto visible : visible_facets)
-            {
-                auto new_edges = get_triangle_edges(*visible);
-                visible_edges.insert(visible_edges.end(), new_edges.begin(), new_edges.end());
+                // Delete all edges that occur more than once 
+                // so only edges at the visible "horizon" remain
+                std::map<Edge, size_t> counter_map;
+                for(auto& e : visible_edges)
+                {
+                    ++counter_map[e];
+                }
+                visible_edges.erase(std::remove_if(visible_edges.begin(), visible_edges.end(), [&](Edge& e){return counter_map.at(e) > 1;}), visible_edges.end());
+                // Recalculate center point
+                center_point = ((center_point * n_assigned) + *p) / (n_assigned + 1);
+                ++n_assigned;
+                // Calculate new facet for each "horizon" edge
+                facets.reserve(facets.size() + visible_edges.size());
+                for(uint e = 0; e < visible_edges.size(); ++e)
+                {
+                    Edge& edge = visible_edges.at(e);
+                    std::array<Vector3d*, 3> new_tri_points {p, edge.first, edge.second};
+                    Triangle new_tri(new_tri_points, center_point);
+                    facets.push_back(new_tri);
+                }
             }
         }
     }
