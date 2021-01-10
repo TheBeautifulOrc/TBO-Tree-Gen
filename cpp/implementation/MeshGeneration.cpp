@@ -33,6 +33,7 @@ using Eigen::Matrix3d;
 using Square = std::array<Vector3d, 4>;
 using Limb = std::vector<Square>;
 using Edge = std::pair<Vector3d*, Vector3d*>;
+using Face = std::vector<uint>;
 
 const Matrix3d ref_coords = Matrix3d::Identity();
 const std::array<int, 4> x_permuation {1,-1,-1,1};
@@ -195,7 +196,7 @@ struct ConvexHull
 };
 
 auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius, const double& min_radius, const double& loop_distance, const ushort& interpolation_mode) 
-    -> std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>>
+    -> std::tuple<std::vector<Vector3d>, std::vector<Face>>
 {
     // General purpose values
     const uint n_nodes = tnc.size();
@@ -843,6 +844,37 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     cleanup();
 
     /*
+    Prepare containers with data that can be returned to the python interface.
+    'ret_verts' contains a flattened copy of the geometry-data in 'squares'.
+    'ret_faces' contains indices of connected vetices in CCW direction.
+    'rat_map' maps the addresses of verts in 'squares' to their corresponding 
+    index in 'ret_verts' (if they're part of it).
+    */
+    std::vector<Vector3d> ret_verts;
+    std::vector<Face> ret_faces;
+    std::map<Vector3d*, uint> ret_map;
+    auto make_verts_exportable = [&] ()
+    {
+        uint ret_counter = 0;
+        for(auto& l_squares : squares)
+        {
+            if(limbs_used[&l_squares])
+            {
+                for(auto& square : l_squares)
+                {
+                    ret_verts.insert(ret_verts.end(), square.begin(), square.end());
+                    for(uint v = 0; v < 4; ++v)
+                    {
+                        ret_map[&square.at(v)] = ret_counter;
+                        ++ret_counter;
+                    }
+                }
+            }
+        }
+    };
+    make_verts_exportable();
+
+    /*
     Generate convex hulls around joints. 
     (after the previous cleanup step we can assume 
     that all joints have at least two non co-planar squares)
@@ -874,19 +906,7 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     };
     generate_convex_hulls();
 
-    // Return data to python interface
-    std::vector<Vector3d> ret_verts;
-    for(auto& l_squares : squares)
-    {
-        if(limbs_used[&l_squares])
-        {
-            for(auto& square : l_squares)
-            {
-                ret_verts.insert(ret_verts.end(), square.begin(), square.end());
-            }
-        }
-    }
-    std::tuple<std::vector<Eigen::Vector3d>, std::vector<std::vector<uint>>> ret_val;
+    std::tuple<std::vector<Eigen::Vector3d>, std::vector<Face>> ret_val;
     std::get<0>(ret_val) = ret_verts;
     return ret_val;
 }
