@@ -43,13 +43,18 @@ def generate_mesh(obj : bpy.types.Object, tnc : TreeNodeContainer, trd : TreePro
     loop_dist = trd.sk_loop_distance
     interpolation_mode = 0 if trd.sk_interpolation_mode == "LIN" else 1
     # Call C++ mesh generation function
-    p = generate_mesh_data(tnc, base_radius, min_radius, loop_dist, interpolation_mode)[0]
+    p,f = generate_mesh_data(tnc, base_radius, min_radius, loop_dist, interpolation_mode)
     # Create bmesh-object
     bm = bmesh.new()    # pylint: disable=assignment-from-no-return
-    # Generate vertices from TreeNode locations
+    # Generate vertices from given locations
     [bm.verts.new(elem) for elem in p]
     bm.verts.index_update()
     bm.verts.ensure_lookup_table()
+    # Generate faces from given connection-data
+    [bm.faces.new([bm.verts[v] for v in face]) for face in f]
+    bm.faces.index_update()
+    bm.faces.ensure_lookup_table()
+    bmesh.ops.holes_fill(bm, edges=bm.edges, sides=4)
     # Overwrite objects mesh data with bmesh data
     bm.to_mesh(obj.data)
     # Destroy bmesh

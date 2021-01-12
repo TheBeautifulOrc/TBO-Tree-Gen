@@ -856,11 +856,11 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
     auto make_verts_exportable = [&] ()
     {
         uint ret_counter = 0;
-        for(auto& l_squares : squares)
+        for(auto& limb : squares)
         {
-            if(limbs_used[&l_squares])
+            if(limbs_used[&limb])
             {
-                for(auto& square : l_squares)
+                for(auto& square : limb)
                 {
                     ret_verts.insert(ret_verts.end(), square.begin(), square.end());
                     for(uint v = 0; v < 4; ++v)
@@ -902,11 +902,60 @@ auto generate_mesh_data(const TreeNodeContainer& tnc, const double& base_radius,
             }
             // Create convex hull
             ConvexHull qh(joint_verts);
+            // Write facet-data to the buffer of faces that will be returned to Python
+            for(auto& facet : qh.facets)
+            {
+                uint n_facet_verts = facet.verts.size();    // Literally three
+                std::vector<uint> facet_indices(n_facet_verts);
+                for(uint v = 0; v < n_facet_verts; ++v)
+                {
+                    facet_indices.at(v) = ret_map.at(facet.verts.at(v));
+                }
+                // Are all of these verts part of the same square?
+                bool all_from_same_square = ((facet_indices.at(0)/4) == (facet_indices.at(1)/4)) && ((facet_indices.at(0)/4) == (facet_indices.at(2)/4));
+                if(!all_from_same_square)
+                {
+                    ret_faces.push_back(facet_indices);
+                }
+            }
         }
     };
     generate_convex_hulls();
 
+    /*
+    Face the sides of each limb.
+    */
+    auto generate_limb_faces = [&] ()
+    {
+        // For each limb
+        for(auto& limb : squares)
+        {
+            // If this limb is used in the generation of the mesh
+            if(limbs_used[&limb])   
+            {
+                // Connect squares
+                for(uint s = 0; s < limb.size() - 1; ++s)
+                {
+                    // Squares that will be connected in this iteration
+                    Square& prev = limb.at(s);
+                    Square& next = limb.at(s+1);
+                    // Create four faces 
+                    for(uint f = 0; f < 4; ++f)
+                    {
+                        // The index of the verts next to 'f'
+                        uint f_2 = (f+3) % 4;
+                        // Indices of the verts that will be connected (in CCW order)
+                        Face new_face {ret_map.at(&prev.at(f)), ret_map.at(&next.at(f)), ret_map.at(&next.at(f_2)), ret_map.at(&prev.at(f_2))};
+                        ret_faces.push_back(new_face);
+                    }
+                }
+            }
+        }
+    };
+    generate_limb_faces();
+
     std::tuple<std::vector<Eigen::Vector3d>, std::vector<Face>> ret_val;
     std::get<0>(ret_val) = ret_verts;
+    std::get<1>(ret_val) = ret_faces;
     return ret_val;
 }
