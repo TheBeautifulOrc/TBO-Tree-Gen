@@ -103,7 +103,7 @@ auto combine_n_over_k(int n, int k) -> std::vector<std::vector<uint>>
     do 
     {
         std::vector<uint> comb;
-        for(int i = 0; i < n; ++i) // [0..n-1] integers
+        for(int i = 0; i < n; ++i) // [0...n-1] integers
         {
             if(bitmask[i])
             {
