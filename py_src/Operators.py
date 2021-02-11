@@ -1,4 +1,4 @@
-# Copyright (C) 2019-2020 Luai "TheBeautifulOrc" Malek
+# Copyright (C) 2019-2021 Luai "TheBeautifulOrc" Malek
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,13 +20,15 @@ import mathutils
 # Debug
 import os
 import time
+import sys
 
 from bpy.types import Operator
 from mathutils import Vector
-from .TreeNodes import TreeNode, TreeNodeContainer
-from .SpaceColonialization import grow_trees
-from .TreeObjects import TreeObject
+import numpy as np
+from .TreeProperties import TreeProperties
 from .Utility import get_points_in_object
+from ..cpp.build.TreeGenModule import TreeNode, TreeNodeContainer, grow_nodes, separate_by_id, reduce_nodes, calculate_weights
+from .MeshGenration import genrate_skeletal_mesh, generate_mesh
 
 class CreateTree(Operator):
     """Operator that creates a pseudo-random, realistic looking tree"""
@@ -47,9 +49,9 @@ class CreateTree(Operator):
             and (tree_data.sc_d_i > tree_data.sc_d_k or tree_data.sc_d_i == 0)
         )
 
-    def invole(self, context, event):
+    def invoke(self, context, event):
         return self.execute(context)
-
+    
     def execute(self, context):
         # Debug information
         # TODO: Remove debugging overhead
@@ -64,28 +66,30 @@ class CreateTree(Operator):
         # General purpose variables
         sel = context.selected_objects  # All objects that shall become a tree
         act = context.active_object
-        tree_data = context.scene.tbo_treegen_data
+        tree_data : TreeProperties = context.scene.tbo_treegen_data
 
         ### Generate attraction points
         p_attr = get_points_in_object(context, tree_data)
 
         ### Space colonialization
-        all_tree_nodes = grow_trees(tree_data, sel, p_attr)
-        ### Separate trees
-        sorted_trees = []
-        sorted_trees.extend([TreeObject(obj, all_tree_nodes.separate_by_object(obj), tree_data) for obj in sel])
+        all_tree_nodes = TreeNodeContainer()
+        all_tree_nodes.extend([TreeNode(obj.location, id(obj)) for obj in sel])
+        p_attr = np.asfortranarray(p_attr)
+        grow_nodes(all_tree_nodes, p_attr, tree_data.sc_D, tree_data.sc_d_i, tree_data.sc_d_k, tree_data.sc_n_iter)
         
-        for tree in sorted_trees:
+        ### Separate trees
+        for obj in sel:
+            tnc = separate_by_id(all_tree_nodes, id(obj))
             ### Calculate weights
-            tree.nodes.calculate_weights()
+            calculate_weights(tnc)
             ### Reduce unnecessary nodes 
-            tree.nodes.reduce_nodes(tree_data.nr_max_angle)
+            reduce_nodes(tnc, tree_data.nr_max_angle)
             ### Generate mesh
             if tree_data.pr_skeletons_only:
-                tree.generate_skeltal_mesh() # Generate skeleton
+                genrate_skeletal_mesh(obj, tnc)
             # If not in preview-mode create mesh with volume
             else:
-                tree.generate_mesh()
+                generate_mesh(obj, tnc, tree_data)
             
         # Reset active object
         context.view_layer.objects.active = act

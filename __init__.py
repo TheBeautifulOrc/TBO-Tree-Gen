@@ -1,4 +1,4 @@
-# Copyright (C) 2019-2020 Luai "TheBeautifulOrc" Malek
+# Copyright (C) 2019-2021 Luai "TheBeautifulOrc" Malek
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -28,29 +28,18 @@ import bpy
 import math
 from bpy.props import PointerProperty
 
-modules = [
-    "numba",    # JIT-compiler for faster code execution
-    ]
-
 if "bpy" in locals():
+    # pylint: disable=import-error
     import importlib
-    from . import PackageHandler
-    importlib.reload(PackageHandler)
-    # Check for dependencies and install if necessary
-    PackageHandler.handle_packages(modules)
-    from . import TreeProperties
+    from .py_src import TreeProperties
     importlib.reload(TreeProperties)
-    from . import TreeNodes
-    importlib.reload(TreeNodes)
-    from . import SpaceColonialization
-    importlib.reload(SpaceColonialization)
-    from . import Utility
+    from .py_src import Utility
     importlib.reload(Utility)
-    from . import Panels
+    from .py_src import Panels
     importlib.reload(Panels)
-    from . import TreeObjects
-    importlib.reload(TreeObjects)
-    from . import Operators
+    from .py_src import MeshGenration
+    importlib.reload(MeshGenration)
+    from .py_src import Operators
     importlib.reload(Operators)
 
 classes = (
@@ -68,8 +57,6 @@ def register():
     for cl in classes:
         bpy.utils.register_class(cl)
     bpy.types.Scene.tbo_treegen_data = PointerProperty(type=TreeProperties.TreeProperties)  # pylint: disable=assignment-from-no-return
-    # Check for dependencies and install if necessary
-    PackageHandler.handle_packages(modules)
 
 def unregister():
     for cl in reversed(classes):
