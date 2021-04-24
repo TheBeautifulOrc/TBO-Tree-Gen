@@ -1,2 +1,21 @@
-.vscode
-__pycache__
+### Ignore all
+*
+
+### Except...
+# Subfolders
+!*/
+# .gitignore files
+!.gitignore
+# Scons files
+!SConstruct
+!SConscript
+# Markdown
+!*.md
+# C/C++ files
+!*.c
+!*.cpp
+!*.h
+!*.hpp
+!*.cppm
+# Python files
+!*.py
