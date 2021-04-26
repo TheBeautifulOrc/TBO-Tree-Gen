@@ -15,7 +15,7 @@
 
 #include "Utility.hpp"
 #include <cmath>
-#include "external/splines/Splines.hpp"
+#include "Splines.hpp"
 
 using Eigen::MatrixX3d;
 using Eigen::Vector3d;
@@ -27,7 +27,7 @@ auto calc_growth_direction(const Vector3d& old_node_loc, const std::vector<Vecto
 {
     // Number of attraction points influencing growth of this node in this iteration
     size_t n_attr_points = attr_points.size();
-    
+
     // Combine normalized directions by adding
     Vector3d combined_dir(0.0,0.0,0.0);
     for(size_t ap = 0; ap < n_attr_points; ap++)
@@ -46,7 +46,7 @@ auto calc_growth_direction(const Vector3d& old_node_loc, const std::vector<Vecto
     }
 }
 
-Spline3d::Spline3d() 
+Spline3d::Spline3d()
 {
     this->x_spline = std::unique_ptr<Spline>(new Spline);
     this->y_spline = std::unique_ptr<Spline>(new Spline);
@@ -100,7 +100,7 @@ auto combine_n_over_k(int n, int k) -> std::vector<std::vector<uint>>
     bitmask.resize(n, 0); // n-k trailing 0's
     std::vector<std::vector<uint>> res;
     // print integers and permute bitmask
-    do 
+    do
     {
         std::vector<uint> comb;
         for(int i = 0; i < n; ++i) // [0...n-1] integers

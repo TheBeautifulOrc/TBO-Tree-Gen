@@ -13,9 +13,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# pylint: skip-file
-
 ### C++ tree generation module
+
+# pylint: skip-file
 
 import os
 from glob import glob
@@ -23,9 +23,11 @@ from glob import glob
 Import('env', 'py_version')
 
 # Name of the target library
-target_name = ('./build/TreeGenModule'
-	+ os.popen(py_version + '-config --extension-suffix').read().strip("\n"))
-tree_gen_source = glob(pathname='**/*.cpp', recursive=True)
+target_name = ('TreeGenModule'
+	+ os.popen(py_version + ''' -c 'import sysconfig; print(sysconfig.get_config_var("EXT_SUFFIX"))' ''').read().strip("\n"))
+
+source_dir = Dir('#cpp/src')
+source = source_dir.glob('*.cpp')
 
 # Build target
-tree_gen_module = env.SharedLibrary(target_name, tree_gen_source)
+tree_gen_module = env.SharedLibrary(target_name, source)

@@ -4,8 +4,9 @@
 ### Except...
 # Subfolders
 !*/
-# .gitignore files
+# Git files
 !.gitignore
+!.gitmodules
 # Scons files
 !SConstruct
 !SConscript
@@ -19,3 +20,6 @@
 !*.cppm
 # Python files
 !*.py
+
+### Specifically ignore
+.vscode
