@@ -1,0 +1,6 @@
+[submodule "cpp/vendor/eigen"]
+	path = cpp/vendor/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "cpp/vendor/nanoflann"]
+	path = cpp/vendor/nanoflann
+	url = https://github.com/jlblancoc/nanoflann.git
