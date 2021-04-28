@@ -2,6 +2,8 @@
 
 This add-on for Blender 2.8+ creates trees procedurally by implementing a space colonialization algorithm.
 
+<div style="text-align:center"><img src="./pictures/tree_wireframe.png" height=540/></div>
+
 ---
 **Warning: This project is still in a pre-release stage.**
 

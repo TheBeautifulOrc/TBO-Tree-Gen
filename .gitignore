@@ -20,6 +20,8 @@
 !*.cppm
 # Python files
 !*.py
+# Pictures
+!*.png
 
 ### Specifically ignore
 .vscode
