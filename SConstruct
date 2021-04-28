@@ -21,6 +21,9 @@ import os
 from os.path import join
 from glob import glob
 
+# Suppress SCons warnings
+SetOption('warn', 'no-all')
+
 # Requested Python version
 AddOption(
 	'--py_version', '--py',
@@ -78,21 +81,18 @@ for folder in folders:
 vendor_include = [Dir(f.path) for f in os.scandir('cpp/vendor')]
 src_include = [Dir('#/cpp/src')]
 
+# Environment settings
+env = Environment(
+	CC='g++',
+	CCFLAGS=['-std=c++17', '-O3'],
+	CPPPATH=vendor_include + src_include,
+	LIBPATH=[],
+	SHLIBPREFIX=''
+)
+
+# For each selected Python version...
 for py_version in python_versions:
-	# Environment settings
-	py_include = os.popen(py_version + ' -m pybind11 --include')
-	py_include = py_include.read().strip("\n").split(" ")
-	py_include = [elem.removeprefix('-I') for elem in py_include]
-
-	env = Environment(
-		CC='g++',
-		CCFLAGS=['-std=c++17', '-O3'],
-		CPPPATH=py_include + vendor_include + src_include,
-		LIBPATH=[],
-		SHLIBPREFIX=''
-	)
-
-	# Execute SConscripts
+	# ...execute SConscript
 	SConscript(
 		sconscripts,
 		exports=['env', 'py_version'],

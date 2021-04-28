@@ -22,6 +22,14 @@ from glob import glob
 
 Import('env', 'py_version')
 
+local_env = env.Clone()
+
+# Python related libraries that need to be included
+py_include = os.popen(py_version + ' -m pybind11 --include')
+py_include = py_include.read().strip("\n").split(" ")
+py_include = [elem.removeprefix('-I') for elem in py_include]
+local_env.Append(CPPPATH=py_include)
+
 # Name of the target library
 target_name = ('TreeGenModule'
 	+ os.popen(py_version + ''' -c 'import sysconfig; print(sysconfig.get_config_var("EXT_SUFFIX"))' ''').read().strip("\n"))
@@ -30,4 +38,4 @@ source_dir = Dir('#cpp/src')
 source = source_dir.glob('*.cpp')
 
 # Build target
-tree_gen_module = env.SharedLibrary(target_name, source)
+tree_gen_module = local_env.SharedLibrary(target_name, source)
